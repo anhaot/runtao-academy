@@ -17,7 +17,6 @@
 请先阅读以下文件：
 
 - [README.md](./README.md)
-- [SECURITY_AUDIT.md](./SECURITY_AUDIT.md)
 - [LICENSE](./LICENSE)
 
 ## 本地开发

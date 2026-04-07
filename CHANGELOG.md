@@ -19,7 +19,6 @@ The format loosely follows Keep a Changelog, with sections grouped by release.
 - AI batch tag generation and tag recommendation workflows for question maintenance
 - Shared `AIAnswerDraftModal` component and richer AI text formatting helpers
 - Dedicated documentation set under `docs/`, including deployment, operations, development, permissions, AI guide, and user guide
-- Security review report for this repository in `security_best_practices_report.md`
 
 ### Changed
 
