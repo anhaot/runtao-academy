@@ -313,7 +313,7 @@ router.put('/settings/:key', authMiddleware, adminMiddleware, async (req: AuthRe
   }
 });
 
-router.get('/backup/export', authMiddleware, requirePermission('backup_export', '需要备份导出权限'), async (_req: AuthRequest, res: Response) => {
+router.get('/backup/export', authMiddleware, adminMiddleware, async (_req: AuthRequest, res: Response) => {
   try {
     const dataset = await db.exportAllData();
     const counts = await db.getTableCounts();
@@ -330,7 +330,7 @@ router.get('/backup/export', authMiddleware, requirePermission('backup_export', 
   }
 });
 
-router.post('/backup/restore', authMiddleware, requirePermission('backup_restore', '需要备份恢复权限'), async (req: AuthRequest, res: Response) => {
+router.post('/backup/restore', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const data = backupRestoreSchema.parse(req.body);
     await db.replaceAllData({

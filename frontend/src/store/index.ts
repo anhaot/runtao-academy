@@ -1,15 +1,79 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { User } from '@/types';
 
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  setAuth: (user: User, token: string) => void;
+  setAuth: (user: User, token?: string | null) => void;
   logout: () => void;
   updateUser: (user: Partial<User>) => void;
 }
+
+const TOKEN_STORAGE_KEY = 'token';
+const AUTH_STORAGE_KEY = 'auth-storage';
+
+function canUseWebStorage(storage: 'localStorage' | 'sessionStorage') {
+  return typeof window !== 'undefined' && typeof window[storage] !== 'undefined';
+}
+
+function getLegacyAuthSnapshot() {
+  if (!canUseWebStorage('localStorage')) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function migrateLegacyAuthState() {
+  if (!canUseWebStorage('sessionStorage')) {
+    return;
+  }
+
+  const session = window.sessionStorage;
+  const local = canUseWebStorage('localStorage') ? window.localStorage : null;
+  if (!local || session.getItem(AUTH_STORAGE_KEY)) {
+    return;
+  }
+
+  const legacyAuth = getLegacyAuthSnapshot();
+  const legacyToken = local.getItem(TOKEN_STORAGE_KEY);
+
+  if (legacyAuth) {
+    session.setItem(AUTH_STORAGE_KEY, JSON.stringify(legacyAuth));
+  }
+
+  if (legacyToken) {
+    session.setItem(TOKEN_STORAGE_KEY, legacyToken);
+    local.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+function clearLegacyAuthState() {
+  if (canUseWebStorage('localStorage')) {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    window.localStorage.removeItem('user');
+  }
+}
+
+export function getStoredToken(): string | null {
+  migrateLegacyAuthState();
+
+  if (!canUseWebStorage('sessionStorage')) {
+    return null;
+  }
+
+  return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+migrateLegacyAuthState();
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -17,12 +81,22 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
-      setAuth: (user, token) => {
-        localStorage.setItem('token', token);
+      setAuth: (user, token = null) => {
+        if (canUseWebStorage('sessionStorage')) {
+          if (token) {
+            window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+          } else {
+            window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+          }
+        }
+        clearLegacyAuthState();
         set({ user, token, isAuthenticated: true });
       },
       logout: () => {
-        localStorage.removeItem('token');
+        if (canUseWebStorage('sessionStorage')) {
+          window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+        }
+        clearLegacyAuthState();
         set({ user: null, token: null, isAuthenticated: false });
       },
       updateUser: (userData) =>
@@ -31,7 +105,8 @@ export const useAuthStore = create<AuthState>()(
         })),
     }),
     {
-      name: 'auth-storage',
+      name: AUTH_STORAGE_KEY,
+      storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
     }
   )

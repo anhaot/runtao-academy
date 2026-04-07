@@ -8,6 +8,8 @@ export interface AuthRequest extends Request {
   user?: User;
 }
 
+const AUTH_COOKIE_NAME = 'rt_auth';
+
 const permissionCompatibilityMap: Partial<Record<keyof UserPermissions, Array<keyof UserPermissions>>> = {
   question_view: ['question_view', 'question_create', 'question_edit_content', 'question_edit_meta', 'question_delete', 'question_batch_edit'],
   category_view: ['category_view', 'category_manage'],
@@ -51,13 +53,11 @@ export const hasCategoryScopeAccess = (user: User, categoryId: string | null | u
 
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = extractAuthToken(req);
+    if (!token) {
       res.status(401).json({ error: '未提供认证令牌' });
       return;
     }
-
-    const token = authHeader.substring(7);
     const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
     
     const user = await db.getUserById(decoded.userId);
@@ -102,3 +102,40 @@ export const generateToken = (userId: string): string => {
   const options: SignOptions = { expiresIn: '7d' };
   return jwt.sign({ userId }, config.jwt.secret, options);
 };
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  if (!header) {
+    return {};
+  }
+
+  return header.split(';').reduce<Record<string, string>>((acc, pair) => {
+    const separatorIndex = pair.indexOf('=');
+    if (separatorIndex === -1) {
+      return acc;
+    }
+
+    const key = pair.slice(0, separatorIndex).trim();
+    const value = pair.slice(separatorIndex + 1).trim();
+    if (key) {
+      acc[key] = decodeURIComponent(value);
+    }
+    return acc;
+  }, {});
+}
+
+function extractAuthToken(req: Request): string | null {
+  const cookies = parseCookies(req.headers.cookie);
+  const cookieToken = cookies[AUTH_COOKIE_NAME];
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  return null;
+}
+
+export const authCookieName = AUTH_COOKIE_NAME;

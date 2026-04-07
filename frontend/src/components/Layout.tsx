@@ -57,8 +57,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   });
 
   const handleLogout = () => {
-    logout();
-    navigate('/login');
+    authApi.logout().catch(() => undefined).finally(() => {
+      logout();
+      navigate('/login');
+    });
   };
 
   if (!isAuthenticated) {

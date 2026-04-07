@@ -154,6 +154,7 @@ const hasPermission = (user: User | null, permission: keyof UserPermissions) => 
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   const { setStatus: setAIStoreStatus } = useAIStore();
   const [activeTab, setActiveTab] = useState<'system' | 'categories' | 'ai' | 'database'>('system');
   const [categories, setCategories] = useState<Category[]>([]);
@@ -225,7 +226,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const tabs = [
-    ...(hasPermission(user, 'system_manage') || hasPermission(user, 'user_manage') || hasPermission(user, 'backup_export') || hasPermission(user, 'backup_restore')
+    ...(hasPermission(user, 'system_manage') || hasPermission(user, 'user_manage') || isAdmin
       ? [{ id: 'system' as const, label: '系统管理', icon: Shield, color: 'from-rose-500 to-pink-600' }]
       : []),
     ...(hasPermission(user, 'category_manage')
@@ -279,7 +280,7 @@ export const SettingsPage: React.FC = () => {
         })}
       </div>
 
-      {activeTab === 'system' && (hasPermission(user, 'system_manage') || hasPermission(user, 'user_manage') || hasPermission(user, 'backup_export') || hasPermission(user, 'backup_restore')) && <SystemSettings />}
+      {activeTab === 'system' && (hasPermission(user, 'system_manage') || hasPermission(user, 'user_manage') || isAdmin) && <SystemSettings />}
       {activeTab === 'categories' && (
         <CategorySettings
           categories={categories}
@@ -1843,9 +1844,10 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = ({ dbInfo, dbProfiles,
 
 const SystemSettings: React.FC = () => {
   const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   const canManageSystem = hasPermission(user, 'system_manage');
   const canManageUsers = hasPermission(user, 'user_manage');
-  const canBackupRestore = hasPermission(user, 'backup_export') || hasPermission(user, 'backup_restore');
+  const canBackupRestore = isAdmin;
   const [allowRegister, setAllowRegister] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);

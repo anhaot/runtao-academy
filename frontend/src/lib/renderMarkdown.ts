@@ -91,7 +91,7 @@ export function renderSafeMarkdown(text: string, variant: 'compact' | 'rich' = '
 
   html = html
     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
+    .replace(/\*(\S(?:.*?\S)?)\*/g, '<em class="italic">$1</em>');
 
   const lines = html.split('\n');
   const result: string[] = [];

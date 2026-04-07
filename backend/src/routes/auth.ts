@@ -1,9 +1,11 @@
-import { Router, Response, Request } from 'express';
+import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
+import { config } from '../config/index.js';
 import { db } from '../database/index.js';
-import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth.js';
+import { authRateLimitMiddleware } from '../middleware/common.js';
+import { authCookieName, authMiddleware, AuthRequest, generateToken } from '../middleware/auth.js';
 import { User, UserPermissions } from '../types/index.js';
 
 const router = Router();
@@ -58,14 +60,6 @@ const updateProfileSchema = z.object({
   password: passwordSchema.optional(),
 });
 
-function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket.remoteAddress || 'unknown';
-}
-
 function checkLoginLock(ip: string): { locked: boolean; remainingTime?: number } {
   const attempts = loginAttempts.get(ip);
   if (!attempts) {
@@ -115,7 +109,40 @@ function serializeUser(user: User) {
   };
 }
 
-router.post('/register', async (req, res: Response) => {
+function writeAuthCookie(res: Response, token: string) {
+  const maxAge = 7 * 24 * 60 * 60 * 1000;
+  const cookie = [
+    `${authCookieName}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(maxAge / 1000)}`,
+  ];
+
+  if (config.nodeEnv === 'production') {
+    cookie.push('Secure');
+  }
+
+  res.setHeader('Set-Cookie', cookie.join('; '));
+}
+
+function clearAuthCookie(res: Response) {
+  const cookie = [
+    `${authCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+  ];
+
+  if (config.nodeEnv === 'production') {
+    cookie.push('Secure');
+  }
+
+  res.setHeader('Set-Cookie', cookie.join('; '));
+}
+
+router.post('/register', authRateLimitMiddleware, async (req, res: Response) => {
   try {
     const allowRegister = await db.getSetting('allow_register');
     if (allowRegister === 'false') {
@@ -156,6 +183,7 @@ router.post('/register', async (req, res: Response) => {
     });
 
     const token = generateToken(user.id);
+    writeAuthCookie(res, token);
     res.status(201).json({
       user: serializeUser(user),
       token,
@@ -170,8 +198,8 @@ router.post('/register', async (req, res: Response) => {
   }
 });
 
-router.post('/login', async (req, res: Response) => {
-  const ip = getClientIp(req);
+router.post('/login', authRateLimitMiddleware, async (req, res: Response) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
   
   try {
     const lockStatus = checkLoginLock(ip);
@@ -203,6 +231,7 @@ router.post('/login', async (req, res: Response) => {
     clearLoginAttempts(ip);
 
     const token = generateToken(user.id);
+    writeAuthCookie(res, token);
     res.json({
       user: serializeUser(user),
       token,
@@ -218,6 +247,11 @@ router.post('/login', async (req, res: Response) => {
 
 router.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {
   res.json(serializeUser(req.user!));
+});
+
+router.post('/logout', (_req, res: Response) => {
+  clearAuthCookie(res);
+  res.json({ message: '已退出登录' });
 });
 
 router.put('/profile', authMiddleware, async (req: AuthRequest, res: Response) => {

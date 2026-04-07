@@ -18,16 +18,18 @@ import {
   SimilarQuestionPair,
   BackupPayload,
 } from '@/types';
+import { getStoredToken } from '@/store';
 
 const api = axios.create({
   baseURL: '/api',
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getStoredToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -38,8 +40,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem('token');
+        window.sessionStorage.removeItem('auth-storage');
+        window.localStorage.removeItem('token');
+        window.localStorage.removeItem('auth-storage');
+        window.localStorage.removeItem('user');
+      }
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -52,6 +59,8 @@ export const authApi = {
   
   login: (data: { username: string; password: string }) =>
     api.post<{ user: User; token: string }>('/auth/login', data),
+
+  logout: () => api.post<{ message: string }>('/auth/logout', {}),
   
   getMe: () => api.get<User>('/auth/me'),
   
@@ -243,7 +252,7 @@ export const aiApi = {
     raw: string;
   }>('/ai/batch-generate', data),
 
-  polishQuestion: (questionId: string, provider?: string) =>
+  polishQuestion: (questionId: string, mode?: 'light' | 'deep', provider?: string) =>
     api.post<{
       question: Question;
       draft: {
@@ -255,7 +264,27 @@ export const aiApi = {
         tags: string[];
       };
       raw: string;
-    }>('/ai/polish-question', { questionId, provider }),
+    }>('/ai/polish-question', { questionId, mode, provider }),
+
+  answerDraft: (questionId: string, mode?: 'quick' | 'practice' | 'teaching', provider?: string) =>
+    api.post<{
+      question: Question;
+      draft: {
+        answer: string;
+        explanation: string;
+        tags: string[];
+        mode: 'quick' | 'practice' | 'teaching';
+      };
+      raw: string;
+    }>('/ai/answer-draft', { questionId, mode, provider }),
+
+  batchGenerateTags: (data: { ids: string[]; mode?: 'add' | 'replace'; provider?: string }) =>
+    api.post<{
+      updated: number;
+      total: number;
+      message: string;
+      results: Array<{ questionId: string; tags: string[] }>;
+    }>('/ai/batch-tags', data),
 };
 
 export const adminApi = {

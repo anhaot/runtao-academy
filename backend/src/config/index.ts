@@ -24,6 +24,7 @@ interface AISettings {
 interface Config {
   port: number;
   nodeEnv: string;
+  trustProxy: boolean | number;
   jwt: {
     secret: string;
     expiresIn: string;
@@ -54,9 +55,47 @@ const envDatabaseConfig: DatabaseConnectionConfig = {
 
 const runtimeDatabase = resolveDatabaseConfigFromRuntime(envDatabaseConfig);
 
+function parseTrustProxy(value: string | undefined): boolean | number {
+  if (!value) {
+    return false;
+  }
+
+  if (value === 'true') {
+    return 1;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed >= 0) {
+    return parsed;
+  }
+
+  return false;
+}
+
+function logSecurityWarnings(nodeEnv: string, jwtSecret: string) {
+  if (jwtSecret !== 'default-secret-change-me') {
+    return;
+  }
+
+  const prefix = '[security]';
+  console.warn(`${prefix} JWT_SECRET is using the built-in default secret.`);
+
+  if (nodeEnv === 'production') {
+    console.warn(`${prefix} Production deployments should set a unique JWT secret immediately.`);
+    return;
+  }
+
+  console.warn(`${prefix} This is tolerated for local development, but tokens are forgeable if the secret is known.`);
+}
+
 export const config: Config = {
   port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   
   jwt: {
     secret: process.env.JWT_SECRET || 'default-secret-change-me',
@@ -106,3 +145,5 @@ export const config: Config = {
     },
   },
 };
+
+logSecurityWarnings(config.nodeEnv, config.jwt.secret);

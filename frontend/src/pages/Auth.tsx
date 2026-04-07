@@ -127,7 +127,7 @@ export const LoginPage: React.FC = () => {
         username: formData.username,
         password: formData.password,
       });
-      setAuth(response.data.user, response.data.token);
+      setAuth(response.data.user);
       navigate('/', { replace: true });
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || '用户名或密码错误，请重新输入';
@@ -315,7 +315,7 @@ export const RegisterPage: React.FC = () => {
         email: formData.email,
         password: formData.password,
       });
-      setAuth(response.data.user, response.data.token);
+      setAuth(response.data.user);
       navigate('/', { replace: true });
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || '注册失败';

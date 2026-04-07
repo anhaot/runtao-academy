@@ -4,7 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config/index.js';
 import { db } from './database/index.js';
-import { errorHandler, notFoundHandler, requestLogger, authRateLimitMiddleware, rateLimitMiddleware } from './middleware/common.js';
+import { errorHandler, notFoundHandler, requestLogger, aiRateLimitMiddleware, rateLimitMiddleware } from './middleware/common.js';
 import authRoutes from './routes/auth.js';
 import categoryRoutes from './routes/categories.js';
 import questionRoutes from './routes/questions.js';
@@ -14,6 +14,7 @@ import adminRoutes from './routes/admin.js';
 
 export function createApp() {
   const app = express();
+  app.set('trust proxy', config.trustProxy);
 
   app.use(helmet({
     contentSecurityPolicy: {
@@ -64,11 +65,11 @@ export function createApp() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  app.use('/api/auth', authRateLimitMiddleware, authRoutes);
+  app.use('/api/auth', authRoutes);
   app.use('/api/categories', categoryRoutes);
   app.use('/api/questions', questionRoutes);
   app.use('/api/import', importRoutes);
-  app.use('/api/ai', aiRoutes);
+  app.use('/api/ai', aiRateLimitMiddleware, aiRoutes);
   app.use('/api/admin', adminRoutes);
 
   app.use('/api/*', (_req, res) => {

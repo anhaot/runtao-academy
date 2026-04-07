@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { questionApi, categoryApi, importApi, aiApi } from '@/api';
-import { Question, Category, PaginatedResult, SimilarQuestionPair } from '@/types';
+import { Question, Category, PaginatedResult, SimilarQuestionPair, AIConfig } from '@/types';
 import { useAuthStore } from '@/store';
 import { hasPermission } from '@/lib/permissions';
 import { getTagColorClasses } from '@/lib/tagColors';
 import { MAX_QUESTION_TAGS, parseQuestionTags } from '@/lib/questionTags';
-import { renderMultilineText } from '@/lib/renderMarkdown';
+import { renderSafeMarkdown } from '@/lib/renderMarkdown';
 import { applyTagSuggestion, getFilteredTagSuggestions } from '@/lib/tagSuggestions';
+import { formatStructuredDraftText } from '@/lib/aiDraftFormatting';
+import AIAnswerDraftModal from '@/components/AIAnswerDraftModal';
 import { LoadingSpinner } from '@/components/ui';
 import { toast } from 'react-hot-toast';
 import {
@@ -25,6 +27,7 @@ import {
   Check,
   Sparkles,
   Tags,
+  FileText,
 } from 'lucide-react';
 
 const AI_IMPORT_PROMPT_TEMPLATE = `请按 JSON 返回一组适合记忆背题的题目，不要输出任何解释性文字。
@@ -82,8 +85,11 @@ export const QuestionsPage: React.FC = () => {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [showBatchTagsModal, setShowBatchTagsModal] = useState(false);
   const [batchTagsMode, setBatchTagsMode] = useState<'add' | 'remove' | 'replace'>('add');
+  const [showAIBatchTagsModal, setShowAIBatchTagsModal] = useState(false);
   const [showPolishModal, setShowPolishModal] = useState(false);
   const [polishQuestion, setPolishQuestion] = useState<Question | null>(null);
+  const [showAnswerDraftModal, setShowAnswerDraftModal] = useState(false);
+  const [answerDraftQuestion, setAnswerDraftQuestion] = useState<Question | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [duplicates, setDuplicates] = useState<Array<{ title: string; count: number; questions: Question[] }>>([]);
@@ -238,6 +244,11 @@ export const QuestionsPage: React.FC = () => {
   const openPolishModal = (question: Question) => {
     setPolishQuestion(question);
     setShowPolishModal(true);
+  };
+
+  const openAnswerDraftModal = (question: Question) => {
+    setAnswerDraftQuestion(question);
+    setShowAnswerDraftModal(true);
   };
 
   const handleMergeDuplicate = async (keepId: string, removeId: string) => {
@@ -501,6 +512,15 @@ export const QuestionsPage: React.FC = () => {
             <div className="flex flex-wrap items-center justify-end gap-2">
               {canManageTags ? (
                 <>
+                  {canAIPolish ? (
+                    <button
+                      onClick={() => setShowAIBatchTagsModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-violet-700 border border-violet-200 rounded-lg text-sm hover:bg-violet-50 transition-colors"
+                    >
+                      <Sparkles size={14} />
+                      AI批量标签
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => openBatchTagsModal('add')}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
@@ -597,6 +617,15 @@ export const QuestionsPage: React.FC = () => {
                           </div>
                         ) : null}
                         <div className="flex items-center gap-2">
+                          {canAIPolish ? (
+                            <button
+                              onClick={() => openAnswerDraftModal(question)}
+                              className="inline-flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700"
+                            >
+                              <FileText size={16} />
+                              AI答案
+                            </button>
+                          ) : null}
                           {canAIPolish ? (
                             <button
                               onClick={() => openPolishModal(question)}
@@ -709,6 +738,15 @@ export const QuestionsPage: React.FC = () => {
                         </td>
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-1">
+                            {canAIPolish ? (
+                              <button
+                                onClick={() => openAnswerDraftModal(question)}
+                                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                title="AI答案"
+                              >
+                                <FileText size={16} />
+                              </button>
+                            ) : null}
                             {canAIPolish ? (
                               <button
                                 onClick={() => openPolishModal(question)}
@@ -850,6 +888,38 @@ export const QuestionsPage: React.FC = () => {
         onSaved={() => {
           setShowPolishModal(false);
           setPolishQuestion(null);
+          fetchQuestions();
+        }}
+      />
+
+      <AIAnswerDraftModal
+        isOpen={showAnswerDraftModal}
+        question={answerDraftQuestion}
+        availableTags={availableTags}
+        onClose={() => {
+          setShowAnswerDraftModal(false);
+          setAnswerDraftQuestion(null);
+        }}
+        onSaved={() => {
+          setShowAnswerDraftModal(false);
+          setAnswerDraftQuestion(null);
+          fetchQuestions();
+        }}
+        introText="只生成答案和解析，可顺手补充标签，不改题干、标题和难度。"
+      />
+
+      <AIBatchTagsModal
+        isOpen={showAIBatchTagsModal}
+        selectedCount={selectedIds.length}
+        onClose={() => setShowAIBatchTagsModal(false)}
+        onSubmit={async (mode, provider) => {
+          const response = await aiApi.batchGenerateTags({
+            ids: selectedIds,
+            mode,
+            provider: provider || undefined,
+          });
+          toast.success(response.data.message);
+          setShowAIBatchTagsModal(false);
           fetchQuestions();
         }}
       />
@@ -1587,9 +1657,178 @@ interface AIPolishModalProps {
   onSaved: () => void;
 }
 
+interface AIBatchTagsModalProps {
+  isOpen: boolean;
+  selectedCount: number;
+  onClose: () => void;
+  onSubmit: (mode: 'add' | 'replace', provider?: string) => Promise<void>;
+}
+
+const AIBatchTagsModal: React.FC<AIBatchTagsModalProps> = ({ isOpen, selectedCount, onClose, onSubmit }) => {
+  const [loading, setLoading] = useState(false);
+  const [configsLoading, setConfigsLoading] = useState(false);
+  const [aiConfigs, setAiConfigs] = useState<AIConfig[]>([]);
+  const [provider, setProvider] = useState<string>(() => localStorage.getItem('ai_provider') || '');
+  const [saveMode, setSaveMode] = useState<'add' | 'replace'>('add');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSaveMode('add');
+      return;
+    }
+
+    let active = true;
+    setConfigsLoading(true);
+    aiApi.getConfigs()
+      .then((response) => {
+        if (!active) return;
+        setAiConfigs(response.data);
+        if (!provider) {
+          const activeConfig = response.data.find((config) => config.isActive);
+          if (activeConfig) {
+            setProvider(activeConfig.displayName || activeConfig.provider);
+          }
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAiConfigs([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setConfigsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, provider]);
+
+  useEffect(() => {
+    if (provider) {
+      localStorage.setItem('ai_provider', provider);
+    }
+  }, [provider]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      await onSubmit(saveMode, provider || undefined);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'AI批量标签失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      <div className="relative flex min-h-full items-center justify-center px-4 py-6">
+        <div className="app-modal-panel flex w-full max-w-2xl flex-col overflow-hidden">
+          <div className="app-modal-header flex items-center justify-between px-6 py-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">AI 批量标签</h2>
+              <p className="text-sm text-gray-500">为已选择的 {selectedCount} 道题目批量生成标签并直接写回题库。</p>
+            </div>
+            <button onClick={onClose} className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="space-y-5 p-6">
+            <div>
+              <div className="mb-2 text-sm font-medium text-gray-700">保存方式</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('add')}
+                  className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                    saveMode === 'add'
+                      ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-500/10'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="text-sm font-medium text-gray-900">追加到原标签</div>
+                  <div className="mt-1 text-xs leading-5 text-gray-500">保留原有标签，并补充 AI 生成的新标签。</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('replace')}
+                  className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                    saveMode === 'replace'
+                      ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-500/10'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="text-sm font-medium text-gray-900">覆盖为 AI 标签</div>
+                  <div className="mt-1 text-xs leading-5 text-gray-500">直接用 AI 标签替换当前标签，适合老题库统一整理。</div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-sm font-medium text-gray-700">临时模型</div>
+              {configsLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                  正在加载模型配置...
+                </div>
+              ) : aiConfigs.length > 0 ? (
+                <select
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value)}
+                  className="select-field w-full px-4 py-3 pr-10 bg-white text-gray-700"
+                >
+                  {aiConfigs.map((config) => {
+                    const value = config.displayName || config.provider;
+                    return (
+                      <option key={config.id} value={value}>
+                        {config.displayName || config.provider}
+                        {config.isActive ? '（当前默认）' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                  未读取到可用模型，将使用当前默认配置。
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/60 p-4 text-sm leading-6 text-violet-800">
+              批量标签会根据题目内容、答案和解析生成更适合检索的知识点标签。批量处理可能需要几十秒，保存后会自动刷新列表。
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/50 px-6 py-4">
+            <button onClick={onClose} className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-gray-700 transition-all hover:bg-gray-50">
+              取消
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="rounded-xl bg-violet-600 px-5 py-2.5 text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? '处理中...' : '开始批量生成'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose, onSaved }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [slowLoading, setSlowLoading] = useState(false);
+  const [mode, setMode] = useState<'light' | 'deep'>('light');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [draft, setDraft] = useState<null | {
     title: string;
     content: string;
@@ -1602,15 +1841,34 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
   useEffect(() => {
     if (!isOpen || !question) {
       setDraft(null);
+      setSelectedTags([]);
+      setMode('light');
       return;
     }
+  }, [isOpen, question]);
 
+  useEffect(() => {
+    if (!isOpen || !question) {
+      return;
+    }
     let active = true;
+    let slowTimer: number | undefined;
     setLoading(true);
-    aiApi.polishQuestion(question.id)
+    setSlowLoading(false);
+    slowTimer = window.setTimeout(() => {
+      if (active) {
+        setSlowLoading(true);
+      }
+    }, 15000);
+    aiApi.polishQuestion(question.id, mode)
       .then((response) => {
         if (active) {
-          setDraft(response.data.draft);
+          setDraft({
+            ...response.data.draft,
+            answer: formatStructuredDraftText(response.data.draft.answer),
+            explanation: formatStructuredDraftText(response.data.draft.explanation),
+          });
+          setSelectedTags(response.data.draft.tags || []);
         }
       })
       .catch((error: any) => {
@@ -1618,15 +1876,22 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
         onClose();
       })
       .finally(() => {
+        if (slowTimer) {
+          window.clearTimeout(slowTimer);
+        }
         if (active) {
           setLoading(false);
+          setSlowLoading(false);
         }
       });
 
     return () => {
       active = false;
+      if (slowTimer) {
+        window.clearTimeout(slowTimer);
+      }
     };
-  }, [isOpen, question, onClose]);
+  }, [isOpen, question, onClose, mode]);
 
   if (!isOpen || !question) return null;
 
@@ -1640,7 +1905,7 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
         answer: draft.answer,
         explanation: draft.explanation,
         difficulty: draft.difficulty,
-        tags: draft.tags,
+        tags: selectedTags,
       });
       toast.success('AI 润色已保存');
       onSaved();
@@ -1656,7 +1921,7 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
       <div className="mb-2 text-sm font-medium text-gray-700">{title}</div>
       <div
         className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-gray-700 prose prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: renderMultilineText(value) }}
+        dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(value, 'compact') }}
       />
     </div>
   );
@@ -1678,6 +1943,14 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
     </div>
   );
 
+  const toggleTag = (tag: string) => {
+    setSelectedTags((current) => (
+      current.includes(tag)
+        ? current.filter((item) => item !== tag)
+        : [...current, tag].slice(0, MAX_QUESTION_TAGS)
+    ));
+  };
+
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-transparent" onClick={onClose} />
@@ -1693,8 +1966,14 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
             </button>
           </div>
           {loading ? (
-            <div className="flex h-80 items-center justify-center">
+            <div className="flex h-80 flex-col items-center justify-center gap-4 px-6 text-center">
               <LoadingSpinner size="lg" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-700">AI 正在润色题目</p>
+                <p className="text-sm text-gray-500">
+                  {slowLoading ? '当前模型返回较慢，通常还在生成中，请再等待一会。' : '通常需要十几秒到几十秒。'}
+                </p>
+              </div>
             </div>
           ) : draft ? (
             <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-2">
@@ -1707,14 +1986,57 @@ const AIPolishModal: React.FC<AIPolishModalProps> = ({ isOpen, question, onClose
               <div className="min-h-0 space-y-4 overflow-y-auto p-6">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-900">润色</h3>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex rounded-xl border border-gray-200 bg-white p-1">
+                      {([
+                        { value: 'light', label: '轻润色' },
+                        { value: 'deep', label: '深润色' },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setMode(option.value)}
+                          disabled={loading}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                            mode === option.value
+                              ? 'bg-primary-600 text-white'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
                     <span className="inline-flex rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{draft.difficulty}</span>
-                    {draft.tags.map((tag) => (
-                      <span key={tag} className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${getTagColorClasses(tag)}`}>
-                        {tag}
-                      </span>
-                    ))}
                   </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-sm font-medium text-gray-700">标签建议</div>
+                  {draft.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-white p-3">
+                      {draft.tags.map((tag) => {
+                        const active = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleTag(tag)}
+                            className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                              active
+                                ? 'border-violet-300 bg-violet-50 text-violet-700'
+                                : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 hover:bg-white'
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-gray-200 bg-white p-3 text-sm text-gray-500">
+                      当前润色结果没有标签建议。
+                    </div>
+                  )}
                 </div>
                 {renderDraftTextarea('题目内容', draft.content, (content) => setDraft((current) => (current ? { ...current, content } : current)), 4)}
                 {renderDraftTextarea('答案', draft.answer, (answer) => setDraft((current) => (current ? { ...current, answer } : current)), 6)}
@@ -1757,7 +2079,7 @@ type GeneratedQuestion = {
   tags?: string[];
 };
 
-const aiGenerateModes = [
+const batchGenerateModes = [
   {
     value: 'quick' as const,
     label: '速记版',
@@ -1941,7 +2263,7 @@ const AIGenerateModal: React.FC<AIGenerateModalProps> = ({ isOpen, onClose, cate
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">生成模式</label>
               <div className="grid grid-cols-3 gap-2">
-                {aiGenerateModes.map((modeOption) => {
+                {batchGenerateModes.map((modeOption) => {
                   const active = formData.mode === modeOption.value;
                   return (
                     <button
@@ -2064,16 +2386,25 @@ const AIGenerateModal: React.FC<AIGenerateModalProps> = ({ isOpen, onClose, cate
                     <div className="space-y-3">
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">题目</p>
-                        <p className="text-sm leading-6 text-gray-900">{question.content}</p>
+                        <div
+                          className="prose prose-sm max-w-none text-sm leading-6 text-gray-900"
+                          dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(question.content, 'compact') }}
+                        />
                       </div>
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">答案</p>
-                        <p className="text-sm leading-6 text-emerald-700">{question.answer}</p>
+                        <div
+                          className="prose prose-sm max-w-none text-sm leading-6 text-emerald-700"
+                          dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(question.answer, 'compact') }}
+                        />
                       </div>
                       {question.explanation ? (
                         <div>
                           <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">解析</p>
-                          <p className="text-sm leading-6 text-gray-600">{question.explanation}</p>
+                          <div
+                            className="prose prose-sm max-w-none text-sm leading-6 text-gray-600"
+                            dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(question.explanation, 'compact') }}
+                          />
                         </div>
                       ) : null}
                     </div>

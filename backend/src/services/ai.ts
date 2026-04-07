@@ -1,5 +1,11 @@
 import { config } from '../config/index.js';
 import { db } from '../database/index.js';
+import { validateAIBaseUrl } from '../utils/aiConfigSecurity.js';
+
+interface ProviderActor {
+  userId?: string;
+  role?: string;
+}
 
 export interface AIProvider {
   name: string;
@@ -113,7 +119,7 @@ class AIService {
     return Array.from(this.providers.keys());
   }
 
-  async getProvider(providerName: string, userId?: string): Promise<AIProvider> {
+  async getProvider(providerName: string, actor?: ProviderActor): Promise<AIProvider> {
     const defaultBaseUrls: Record<string, string> = {
       openai: 'https://api.openai.com/v1',
       deepseek: 'https://api.deepseek.com/v1',
@@ -122,6 +128,9 @@ class AIService {
       wenxin: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
       zhipu: 'https://open.bigmodel.cn/api/paas/v4',
     };
+
+    const userId = actor?.userId;
+    const actorRole = actor?.role || 'user';
 
     if (userId && providerName) {
       const allConfigs = await db.getAIConfigsByUserId(userId);
@@ -135,7 +144,12 @@ class AIService {
       console.log('Found targetConfig:', targetConfig ? { id: targetConfig.id, provider: targetConfig.provider, display_name: targetConfig.display_name } : null);
       
       if (targetConfig) {
-        const baseUrl = targetConfig.base_url || defaultBaseUrls[targetConfig.provider] || 'https://api.openai.com/v1';
+        const baseUrl = validateAIBaseUrl(
+          targetConfig.base_url || defaultBaseUrls[targetConfig.provider] || 'https://api.openai.com/v1',
+          { role: actorRole },
+          Boolean(targetConfig.is_custom),
+          'runtime'
+        );
         return new OpenAICompatibleProvider(
           targetConfig.display_name || targetConfig.provider,
           targetConfig.api_key,
@@ -149,7 +163,12 @@ class AIService {
     if (userId) {
       const userConfig = await db.getActiveAIConfig(userId);
       if (userConfig) {
-        const baseUrl = userConfig.base_url || defaultBaseUrls[userConfig.provider] || 'https://api.openai.com/v1';
+        const baseUrl = validateAIBaseUrl(
+          userConfig.base_url || defaultBaseUrls[userConfig.provider] || 'https://api.openai.com/v1',
+          { role: actorRole },
+          Boolean(userConfig.is_custom),
+          'runtime'
+        );
         return new OpenAICompatibleProvider(
           userConfig.display_name || userConfig.provider,
           userConfig.api_key,
@@ -168,8 +187,8 @@ class AIService {
     throw new Error(`AI provider '${providerName}' is not configured. Please add an AI configuration in Settings.`);
   }
 
-  async chat(messages: Array<{ role: string; content: string }>, providerName?: string, userId?: string): Promise<string> {
-    const provider = await this.getProvider(providerName || config.ai.defaultProvider, userId);
+  async chat(messages: Array<{ role: string; content: string }>, providerName?: string, actor?: ProviderActor): Promise<string> {
+    const provider = await this.getProvider(providerName || config.ai.defaultProvider, actor);
     return provider.chat(messages);
   }
 
