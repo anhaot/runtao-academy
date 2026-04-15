@@ -63,6 +63,15 @@ function clearLegacyAuthState() {
   }
 }
 
+export function clearStoredAuthState() {
+  if (canUseWebStorage('sessionStorage')) {
+    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  }
+
+  clearLegacyAuthState();
+}
+
 export function getStoredToken(): string | null {
   migrateLegacyAuthState();
 
@@ -93,10 +102,7 @@ export const useAuthStore = create<AuthState>()(
         set({ user, token, isAuthenticated: true });
       },
       logout: () => {
-        if (canUseWebStorage('sessionStorage')) {
-          window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-        }
-        clearLegacyAuthState();
+        clearStoredAuthState();
         set({ user: null, token: null, isAuthenticated: false });
       },
       updateUser: (userData) =>

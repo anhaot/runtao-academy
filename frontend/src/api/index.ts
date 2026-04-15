@@ -18,7 +18,7 @@ import {
   SimilarQuestionPair,
   BackupPayload,
 } from '@/types';
-import { getStoredToken } from '@/store';
+import { clearStoredAuthState, getStoredToken } from '@/store';
 
 const api = axios.create({
   baseURL: '/api',
@@ -41,13 +41,17 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
-        window.sessionStorage.removeItem('token');
-        window.sessionStorage.removeItem('auth-storage');
-        window.localStorage.removeItem('token');
-        window.localStorage.removeItem('auth-storage');
-        window.localStorage.removeItem('user');
+        clearStoredAuthState();
+
+        const pathname = window.location.pathname;
+        const requestUrl = String(error.config?.url || '');
+        const isAuthRoute = pathname === '/login' || pathname === '/register';
+        const isSessionRestoreProbe = requestUrl.includes('/auth/me');
+
+        if (!isAuthRoute && !isSessionRestoreProbe) {
+          window.location.replace('/login');
+        }
       }
-      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
