@@ -5,6 +5,8 @@ import {
   Question,
   LearningProgress,
   AIConfig,
+  AIModelCheckResult,
+  AIModelInfo,
   PaginatedResult,
   ImportResult,
   AIStatus,
@@ -193,14 +195,22 @@ export const aiApi = {
     api.put<AIStatus>('/ai/settings', data),
   
   getConfigs: () => api.get<AIConfig[]>('/ai/config'),
+
+  getModels: (data: {
+    configId?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    isCustom?: boolean;
+  }) => api.post<{ models: AIModelInfo[] }>('/ai/models', data),
   
   createConfig: (data: { 
     provider: string; 
     displayName?: string;
     baseUrl?: string;
-    apiKey: string; 
+    apiKey?: string; 
     model: string;
     isCustom?: boolean;
+    sourceConfigId?: string;
   }) => api.post<AIConfig>('/ai/config', data),
   
   updateConfig: (id: string, data: { 
@@ -209,11 +219,20 @@ export const aiApi = {
     baseUrl?: string;
     apiKey?: string; 
     model?: string;
+    isCustom?: boolean;
   }) => api.put<AIConfig>(`/ai/config/${id}`, data),
   
   deleteConfig: (id: string) => api.delete(`/ai/config/${id}`),
+
+  deleteInvalidConfigs: () => api.delete<{ deleted: number }>('/ai/config/invalid'),
   
   setActiveConfig: (id: string) => api.put(`/ai/config/${id}/active`),
+
+  checkConfig: (id: string) =>
+    api.post<AIModelCheckResult>(`/ai/config/${id}/check`),
+
+  checkAllConfigs: () =>
+    api.post<{ results: AIModelCheckResult[] }>('/ai/config/check-all'),
   
   analyze: (questionId: string, provider?: string) =>
     api.post<{ result: string }>('/ai/analyze', { questionId, provider }),

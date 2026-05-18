@@ -206,6 +206,9 @@ export class DatabaseManager {
         model TEXT NOT NULL,
         is_active INTEGER DEFAULT 1,
         is_custom INTEGER DEFAULT 0,
+        model_status TEXT DEFAULT 'unknown',
+        last_checked_at TEXT,
+        last_check_error TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -248,6 +251,18 @@ export class DatabaseManager {
 
     try {
       this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN is_custom INTEGER DEFAULT 0`);
+    } catch (e) { /* Column already exists */ }
+
+    try {
+      this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN model_status TEXT DEFAULT 'unknown'`);
+    } catch (e) { /* Column already exists */ }
+
+    try {
+      this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN last_checked_at TEXT`);
+    } catch (e) { /* Column already exists */ }
+
+    try {
+      this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN last_check_error TEXT`);
     } catch (e) { /* Column already exists */ }
   }
 
@@ -349,11 +364,30 @@ export class DatabaseManager {
         model VARCHAR(100) NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
         is_custom BOOLEAN DEFAULT FALSE,
+        model_status VARCHAR(20) DEFAULT 'unknown',
+        last_checked_at TEXT,
+        last_check_error TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    try {
+      await this.mysqlPool.execute(`
+        ALTER TABLE ai_configs ADD COLUMN model_status VARCHAR(20) DEFAULT 'unknown'
+      `);
+    } catch (error) { /* Column already exists */ }
+    try {
+      await this.mysqlPool.execute(`
+        ALTER TABLE ai_configs ADD COLUMN last_checked_at TEXT
+      `);
+    } catch (error) { /* Column already exists */ }
+    try {
+      await this.mysqlPool.execute(`
+        ALTER TABLE ai_configs ADD COLUMN last_check_error TEXT
+      `);
+    } catch (error) { /* Column already exists */ }
 
     await this.mysqlPool.execute(`
       CREATE INDEX IF NOT EXISTS idx_questions_user_id ON questions(user_id)
@@ -1076,6 +1110,22 @@ export class DatabaseManager {
     if (data.is_active !== undefined) {
       fields.push('is_active = ?');
       values.push(data.is_active ? 1 : 0);
+    }
+    if (data.is_custom !== undefined) {
+      fields.push('is_custom = ?');
+      values.push(data.is_custom ? 1 : 0);
+    }
+    if (data.model_status !== undefined) {
+      fields.push('model_status = ?');
+      values.push(data.model_status);
+    }
+    if (data.last_checked_at !== undefined) {
+      fields.push('last_checked_at = ?');
+      values.push(data.last_checked_at);
+    }
+    if (data.last_check_error !== undefined) {
+      fields.push('last_check_error = ?');
+      values.push(data.last_check_error);
     }
 
     if (fields.length === 0) {

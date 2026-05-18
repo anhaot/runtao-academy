@@ -80,6 +80,9 @@ export interface AIConfig {
   model: string;
   is_active: boolean;
   is_custom?: boolean;
+  model_status?: 'unknown' | 'valid' | 'invalid';
+  last_checked_at?: string;
+  last_check_error?: string;
   created_at: string;
   updated_at: string;
 }

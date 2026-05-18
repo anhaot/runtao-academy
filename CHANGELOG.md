@@ -8,7 +8,9 @@ The format loosely follows Keep a Changelog, with sections grouped by release.
 
 ### Added
 
-- Nothing yet.
+- AI model configuration maintenance: model availability checks, invalid-model status badges, and one-click cleanup for invalid model configs.
+- Dynamic custom API address templates for saved OpenAI-compatible providers, including template naming and NVIDIA address recognition.
+- Reuse of saved custom provider API keys when adding additional models for the same API address.
 
 ## [1.1.0] - 2026-04-07
 

@@ -6,6 +6,7 @@ import { getSingleValueSuggestions } from '@/lib/tagSuggestions';
 import {
   Category,
   AIConfig,
+  AIModelInfo,
   AIStatus,
   User,
   UserPermissions,
@@ -39,6 +40,8 @@ import {
   UserCog,
   Download,
   Upload,
+  RefreshCcw,
+  AlertTriangle,
 } from 'lucide-react';
 
 const DEFAULT_USER_PERMISSIONS: UserPermissions = {
@@ -955,6 +958,7 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
   const [showModal, setShowModal] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AIConfig | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const handleToggleEnabled = async () => {
     if (!aiStatus) return;
@@ -970,10 +974,10 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
     }
   };
 
-  const handleDefaultProviderChange = async (provider: string) => {
+  const handleDefaultProviderChange = async (configId: string) => {
     setUpdating(true);
     try {
-      const config = aiConfigs.find(c => c.provider === provider);
+      const config = aiConfigs.find(c => c.id === configId);
       if (config) {
         await aiApi.setActiveConfig(config.id);
         onRefresh();
@@ -986,6 +990,37 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
     }
   };
 
+  const handleCheckAll = async () => {
+    setChecking(true);
+    try {
+      const response = await aiApi.checkAllConfigs();
+      const invalidCount = response.data.results.filter((item) => item.status === 'invalid').length;
+      const unknownCount = response.data.results.filter((item) => item.status === 'unknown').length;
+      toast.success(`检查完成：${invalidCount} 个模型失效，${unknownCount} 个配置无法确认`);
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || '检查失败');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleCheckOne = async (config: AIConfig) => {
+    try {
+      const response = await aiApi.checkConfig(config.id);
+      if (response.data.status === 'valid') {
+        toast.success('模型可用');
+      } else if (response.data.status === 'invalid') {
+        toast.error(response.data.error || '模型已失效');
+      } else {
+        toast.error(response.data.error || '无法确认模型状态');
+      }
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || '检查失败');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除此配置吗？')) return;
 
@@ -995,6 +1030,23 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
       onRefresh();
     } catch (error) {
       toast.error('删除失败');
+    }
+  };
+
+  const handleDeleteInvalid = async () => {
+    const invalidCount = aiConfigs.filter((config) => config.modelStatus === 'invalid').length;
+    if (invalidCount === 0) {
+      toast('没有已标记失效的模型配置');
+      return;
+    }
+    if (!confirm(`确定要清除 ${invalidCount} 个已标记失效的模型配置吗？`)) return;
+
+    try {
+      const response = await aiApi.deleteInvalidConfigs();
+      toast.success(`已清除 ${response.data.deleted} 个失效配置`);
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || '清除失败');
     }
   };
 
@@ -1051,19 +1103,19 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
                 </div>
               </div>
               <select
-                value={aiConfigs.find(c => c.isActive)?.provider || ''}
+                value={aiConfigs.find(c => c.isActive)?.id || ''}
                 onChange={(e) => handleDefaultProviderChange(e.target.value)}
                 disabled={updating}
                 className="select-field min-w-[140px] px-4 pr-10 py-2 bg-white text-gray-700 cursor-pointer"
               >
                 {aiConfigs.filter(c => c.isActive).map((config) => (
-                  <option key={config.id} value={config.provider}>
-                    {providerOptions.find(o => o.value === config.provider)?.label || config.provider}
+                  <option key={config.id} value={config.id}>
+                    {config.displayName || providerOptions.find(o => o.value === config.provider)?.label || config.provider}
                   </option>
                 ))}
                 {aiConfigs.filter(c => !c.isActive).map((config) => (
-                  <option key={config.id} value={config.provider}>
-                    {providerOptions.find(o => o.value === config.provider)?.label || config.provider}
+                  <option key={config.id} value={config.id}>
+                    {config.displayName || providerOptions.find(o => o.value === config.provider)?.label || config.provider}
                   </option>
                 ))}
               </select>
@@ -1077,20 +1129,38 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-gray-700 rounded-lg">
               <Key className="w-5 h-5 text-white" />
             </div>
             <h2 className="text-lg font-semibold text-gray-900">API配置</h2>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 rounded-lg text-white text-sm font-medium hover:bg-primary-700 transition-colors"
-          >
-            <Plus size={18} />
-            添加配置
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCheckAll}
+              disabled={checking || aiConfigs.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCcw size={18} className={checking ? 'animate-spin' : ''} />
+              检查失效模型
+            </button>
+            <button
+              onClick={handleDeleteInvalid}
+              disabled={aiConfigs.every((config) => config.modelStatus !== 'invalid')}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-red-700 text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={18} />
+              清除失效模型
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 rounded-lg text-white text-sm font-medium hover:bg-primary-700 transition-colors"
+            >
+              <Plus size={18} />
+              添加配置
+            </button>
+          </div>
         </div>
 
         <div className="p-6">
@@ -1107,11 +1177,32 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
                 <div key={config.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-white rounded-lg border border-gray-200">
-                      <Cpu size={18} className="text-gray-600" />
+                      {config.modelStatus === 'invalid' ? (
+                        <AlertTriangle size={18} className="text-red-600" />
+                      ) : (
+                        <Cpu size={18} className="text-gray-600" />
+                      )}
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{config.displayName || config.provider}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-gray-900">{config.displayName || config.provider}</p>
+                        {config.modelStatus === 'valid' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-md text-xs font-medium">
+                            <Check size={11} />
+                            可用
+                          </span>
+                        )}
+                        {config.modelStatus === 'invalid' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-md text-xs font-medium">
+                            <AlertTriangle size={11} />
+                            已失效
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500">模型：{config.model}</p>
+                      {config.lastCheckError && (
+                        <p className="mt-1 text-xs text-red-600 max-w-xl truncate" title={config.lastCheckError}>{config.lastCheckError}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1138,15 +1229,10 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
                     )}
                     <button
                       onClick={async () => {
-                        try {
-                          const response = await aiApi.testConfig(config.id);
-                          toast.success(response.data.message);
-                        } catch (error: any) {
-                          toast.error(error.response?.data?.error || '测试失败');
-                        }
+                        await handleCheckOne(config);
                       }}
                       className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      title="测试配置"
+                      title="检查模型是否存在"
                     >
                       <Play size={16} />
                     </button>
@@ -1174,6 +1260,7 @@ const AISettings: React.FC<AISettingsProps> = ({ aiStatus, aiConfigs, onRefresh,
           onClose={() => { setShowModal(false); setEditingConfig(null); }}
           onSuccess={() => { setShowModal(false); setEditingConfig(null); onRefresh(); }}
           editingConfig={editingConfig}
+          existingConfigs={aiConfigs}
         />
       </div>
     </div>
@@ -1185,11 +1272,17 @@ interface AIConfigModalProps {
   onClose: () => void;
   onSuccess: () => void;
   editingConfig?: AIConfig | null;
+  existingConfigs: AIConfig[];
 }
 
-const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSuccess, editingConfig }) => {
+const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSuccess, editingConfig, existingConfigs }) => {
   const [loading, setLoading] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelOptions, setModelOptions] = useState<AIModelInfo[]>([]);
   const [isCustom, setIsCustom] = useState(false);
+  const [selectedEndpoint, setSelectedEndpoint] = useState('');
+  const [sourceConfigId, setSourceConfigId] = useState<string | undefined>(undefined);
+  const [templateName, setTemplateName] = useState('');
   const [formData, setFormData] = useState({
     provider: 'deepseek',
     displayName: '',
@@ -1199,17 +1292,55 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
     isCustom: false,
   });
 
-  const presetProviders: Record<string, { label: string; model: string }> = {
-    deepseek: { label: 'DeepSeek', model: 'deepseek-chat' },
-    openai: { label: 'OpenAI', model: 'gpt-4o-mini' },
-    qwen: { label: '千问', model: 'qwen-turbo' },
-    doubao: { label: '豆包', model: 'doubao-pro-4k' },
-    wenxin: { label: '文心一言', model: 'ernie-bot-4' },
-    zhipu: { label: '智谱AI', model: 'glm-4' },
+  const presetProviders: Record<string, { label: string; model: string; baseUrl: string }> = {
+    deepseek: { label: 'DeepSeek', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1' },
+    openai: { label: 'OpenAI', model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1' },
+    qwen: { label: '千问', model: 'qwen-turbo', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+    doubao: { label: '豆包', model: 'doubao-pro-4k', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
+    wenxin: { label: '文心一言', model: 'ernie-bot-4', baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat' },
+    zhipu: { label: '智谱AI', model: 'glm-4', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
   };
+
+  const getKnownTemplateName = (baseUrl?: string) => {
+    if (!baseUrl) return '';
+    if (baseUrl === 'https://integrate.api.nvidia.com/v1') return 'NVIDIA';
+    return '';
+  };
+
+  const toProviderSlug = (name: string, baseUrl?: string) => {
+    const knownName = getKnownTemplateName(baseUrl);
+    const source = knownName || name || 'custom-ai';
+    return source.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'custom-ai';
+  };
+
+  const getTemplateLabel = (config: AIConfig) => {
+    const knownName = getKnownTemplateName(config.baseUrl);
+    if (knownName) return knownName;
+    return config.provider || config.displayName || config.baseUrl || '自定义 API';
+  };
+
+  const customApiEndpoints = existingConfigs
+    .filter((config) => config.isCustom && config.baseUrl)
+    .reduce<Array<{ value: string; label: string; baseUrl: string; provider: string; configId: string }>>((items, config) => {
+      if (!config.baseUrl || items.some((item) => item.baseUrl === config.baseUrl)) {
+        return items;
+      }
+      items.push({
+        value: config.id,
+        label: getTemplateLabel(config),
+        baseUrl: config.baseUrl,
+        provider: config.provider,
+        configId: config.id,
+      });
+      return items;
+    }, []);
 
   useEffect(() => {
     if (editingConfig) {
+      const matchedEndpoint = customApiEndpoints.find((endpoint) => endpoint.baseUrl === editingConfig.baseUrl);
+      setSelectedEndpoint(matchedEndpoint?.value || '');
+      setSourceConfigId(matchedEndpoint?.configId);
+      setTemplateName(matchedEndpoint?.label || getTemplateLabel(editingConfig));
       setIsCustom(editingConfig.isCustom || false);
       setFormData({
         provider: editingConfig.provider,
@@ -1220,6 +1351,9 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
         isCustom: editingConfig.isCustom || false,
       });
     } else {
+      setSelectedEndpoint('');
+      setSourceConfigId(undefined);
+      setTemplateName('');
       setIsCustom(false);
       setFormData({
         provider: 'deepseek',
@@ -1230,7 +1364,8 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
         isCustom: false,
       });
     }
-  }, [editingConfig]);
+    setModelOptions([]);
+  }, [editingConfig, existingConfigs]);
 
   useEffect(() => {
     if (!isCustom && formData.provider && presetProviders[formData.provider]) {
@@ -1248,24 +1383,28 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
     setLoading(true);
 
     try {
+      const fallbackName = formData.displayName || formData.model;
+      const customProvider = isCustom ? toProviderSlug(templateName, formData.baseUrl) : formData.provider;
       if (editingConfig) {
         const updateData = {
-          provider: isCustom ? formData.displayName?.toLowerCase().replace(/\s+/g, '-') : formData.provider,
-          displayName: formData.displayName || presetProviders[formData.provider]?.label,
+          provider: isCustom ? customProvider : formData.provider,
+          displayName: isCustom ? fallbackName : formData.displayName || presetProviders[formData.provider]?.label,
           baseUrl: isCustom ? formData.baseUrl : undefined,
           apiKey: formData.apiKey || undefined,
           model: formData.model,
+          isCustom,
         };
         await aiApi.updateConfig(editingConfig.id, updateData);
         toast.success('配置更新成功');
       } else {
         const submitData = {
-          provider: isCustom ? formData.displayName?.toLowerCase().replace(/\s+/g, '-') : formData.provider,
-          displayName: formData.displayName || presetProviders[formData.provider]?.label,
+          provider: isCustom ? customProvider : formData.provider,
+          displayName: isCustom ? fallbackName : formData.displayName || presetProviders[formData.provider]?.label,
           baseUrl: isCustom ? formData.baseUrl : undefined,
-          apiKey: formData.apiKey,
+          apiKey: formData.apiKey || undefined,
           model: formData.model,
           isCustom: isCustom,
+          sourceConfigId,
         };
         await aiApi.createConfig(submitData);
         toast.success('配置创建成功');
@@ -1278,6 +1417,59 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
       setLoading(false);
     }
   };
+
+  const handleLoadModels = async () => {
+    setLoadingModels(true);
+    try {
+      const response = await aiApi.getModels({
+        configId: editingConfig?.id,
+        ...(isCustom && !editingConfig && sourceConfigId ? { configId: sourceConfigId } : {}),
+        baseUrl: isCustom ? formData.baseUrl : presetProviders[formData.provider]?.baseUrl,
+        apiKey: formData.apiKey || undefined,
+        isCustom,
+      });
+      setModelOptions(response.data.models);
+      const availableModelIds = response.data.models.map((model) => model.id);
+      if (response.data.models[0] && (!formData.model || !availableModelIds.includes(formData.model))) {
+        setFormData((prev) => ({ ...prev, model: response.data.models[0].id }));
+      }
+      toast.success(`已读取 ${response.data.models.length} 个可用模型`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || '读取模型列表失败');
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !isCustom || !formData.baseUrl) return;
+    if (!editingConfig && !sourceConfigId && formData.apiKey.trim().length < 10) return;
+    if (!selectedEndpoint) return;
+
+    const timer = window.setTimeout(async () => {
+      setLoadingModels(true);
+      try {
+        const response = await aiApi.getModels({
+          configId: editingConfig?.id,
+          ...(!editingConfig && sourceConfigId ? { configId: sourceConfigId } : {}),
+          baseUrl: formData.baseUrl,
+          apiKey: formData.apiKey || undefined,
+          isCustom: true,
+        });
+        setModelOptions(response.data.models);
+        const availableModelIds = response.data.models.map((model) => model.id);
+        if (response.data.models[0] && (!formData.model || !availableModelIds.includes(formData.model))) {
+          setFormData((prev) => ({ ...prev, model: response.data.models[0].id }));
+        }
+      } catch {
+        setModelOptions([]);
+      } finally {
+        setLoadingModels(false);
+      }
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [editingConfig?.id, formData.apiKey, formData.baseUrl, formData.model, isCustom, isOpen, selectedEndpoint, sourceConfigId]);
 
   if (!isOpen) return null;
 
@@ -1296,14 +1488,29 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
           <div className="flex items-center gap-4 mb-4">
             <button
               type="button"
-              onClick={() => { setIsCustom(false); setFormData(prev => ({ ...prev, provider: 'deepseek' })); }}
+              onClick={() => { setIsCustom(false); setFormData(prev => ({ ...prev, provider: 'deepseek' })); setModelOptions([]); }}
               className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-all ${!isCustom ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               预设提供商
             </button>
             <button
               type="button"
-              onClick={() => { setIsCustom(true); setFormData(prev => ({ ...prev, provider: '', displayName: '', baseUrl: '' })); }}
+              onClick={() => {
+                setIsCustom(true);
+                setModelOptions([]);
+                const endpoint = customApiEndpoints[0];
+                setSelectedEndpoint(endpoint?.value || '');
+                setSourceConfigId(endpoint?.configId);
+                setTemplateName(endpoint?.label || '');
+                setFormData(prev => ({
+                  ...prev,
+                  provider: endpoint ? toProviderSlug(endpoint.label, endpoint.baseUrl) : '',
+                  displayName: '',
+                  baseUrl: endpoint?.baseUrl || '',
+                  apiKey: '',
+                  model: '',
+                }));
+              }}
               className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-all ${isCustom ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               自定义提供商
@@ -1325,14 +1532,44 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
             </div>
           ) : (
             <>
+              {customApiEndpoints.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">选择已有 API 地址模板</label>
+                  <select
+                    value={selectedEndpoint}
+                    onChange={(e) => {
+                      const endpoint = customApiEndpoints.find((item) => item.value === e.target.value);
+                      setSelectedEndpoint(e.target.value);
+                      setSourceConfigId(endpoint?.configId);
+                      setTemplateName(endpoint?.label || '');
+                      setModelOptions([]);
+                      setFormData((prev) => ({
+                        ...prev,
+                        provider: endpoint ? toProviderSlug(endpoint.label, endpoint.baseUrl) : '',
+                        baseUrl: endpoint?.baseUrl || '',
+                        apiKey: '',
+                        model: '',
+                      }));
+                    }}
+                    className="select-field w-full px-4 pr-10 py-3 bg-gray-50 text-gray-700 focus:bg-white cursor-pointer"
+                  >
+                    <option value="">新增 API 地址模板</option>
+                    {customApiEndpoints.map((endpoint) => (
+                      <option key={endpoint.value} value={endpoint.value}>{endpoint.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">显示名称</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">API地址模板名称</label>
                 <input
                   type="text"
-                  value={formData.displayName}
-                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-                  required
-                  placeholder="例如：我的AI助手"
+                  value={templateName}
+                  onChange={(e) => {
+                    setTemplateName(e.target.value);
+                    setFormData((prev) => ({ ...prev, provider: toProviderSlug(e.target.value, prev.baseUrl) }));
+                  }}
+                  placeholder="例如：NVIDIA"
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
                 />
               </div>
@@ -1341,11 +1578,30 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
                 <input
                   type="url"
                   value={formData.baseUrl}
-                  onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
+                  onChange={(e) => {
+                    const knownName = getKnownTemplateName(e.target.value);
+                    setSelectedEndpoint('');
+                    setSourceConfigId(undefined);
+                    setModelOptions([]);
+                    if (knownName && !templateName) {
+                      setTemplateName(knownName);
+                    }
+                    setFormData({ ...formData, baseUrl: e.target.value, provider: toProviderSlug(templateName || knownName, e.target.value) });
+                  }}
                   placeholder="例如：https://api.example.com/v1"
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
                 />
                 <p className="text-xs text-gray-500 mt-1">OpenAI兼容的API地址，留空则使用默认地址</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">显示名称</label>
+                <input
+                  type="text"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                  placeholder="留空则使用所选模型名称"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
+                />
               </div>
             </>
           )}
@@ -1356,24 +1612,48 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, onSucces
               type="password"
               value={formData.apiKey}
               onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-              required={!editingConfig}
-              placeholder={editingConfig ? '留空保持原密钥不变' : '请输入API密钥'}
+              required={!editingConfig && !sourceConfigId}
+              placeholder={sourceConfigId ? '留空复用所选提供商密钥' : editingConfig ? '留空保持原密钥不变' : '请输入API密钥'}
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
             />
-            {editingConfig && (
-              <p className="text-xs text-gray-500 mt-1">留空则保持原密钥不变</p>
-            )}
+            <p className="text-xs text-gray-500 mt-1">
+              {sourceConfigId ? '留空会复用所选自定义提供商已保存的密钥。' : editingConfig ? '留空则保持原密钥不变。' : '首次添加新地址时需要填写密钥。'}
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">模型名称</label>
-            <input
-              type="text"
-              value={formData.model}
-              onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-              required
-              placeholder="例如：gpt-4o-mini"
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
-            />
+            <div className="flex gap-2">
+              {modelOptions.length > 0 ? (
+                <select
+                  value={formData.model}
+                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                  required
+                  className="select-field min-w-0 flex-1 px-4 pr-10 py-3 bg-gray-50 text-gray-700 focus:bg-white cursor-pointer"
+                >
+                  {modelOptions.map((model) => (
+                    <option key={model.id} value={model.id}>{model.id}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.model}
+                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                  required
+                  placeholder="例如：gpt-4o-mini"
+                  className="min-w-0 flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all"
+                />
+              )}
+              <button
+                type="button"
+                onClick={handleLoadModels}
+                disabled={loadingModels || (!editingConfig && !sourceConfigId && !formData.apiKey) || (isCustom && !formData.baseUrl)}
+                className="inline-flex items-center justify-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-50"
+                title="从 API 地址读取可用模型"
+              >
+                <RefreshCcw size={16} className={loadingModels ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 transition-all">

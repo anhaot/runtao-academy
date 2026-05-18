@@ -5,7 +5,7 @@ import { db } from '../database/index.js';
 import { authMiddleware, AuthRequest, getLibraryOwnerId, hasCategoryScopeAccess, requirePermission } from '../middleware/auth.js';
 import { aiService } from '../services/ai.js';
 import { config } from '../config/index.js';
-import { User } from '../types/index.js';
+import { AIConfig, User } from '../types/index.js';
 import { validateAIBaseUrl } from '../utils/aiConfigSecurity.js';
 import { normalizeTagsInput, parseStoredTags, parseTagAliasMap, TagAliasMap } from '../utils/tags.js';
 
@@ -16,8 +16,16 @@ const aiConfigSchema = z.object({
   provider: z.string().min(1).max(50),
   displayName: z.string().max(100).optional(),
   baseUrl: z.string().url().max(500).optional().or(z.literal('')),
-  apiKey: z.string().min(1).max(200),
+  apiKey: z.string().min(1).max(200).optional(),
   model: z.string().min(1).max(100),
+  isCustom: z.boolean().optional(),
+  sourceConfigId: z.string().uuid().optional(),
+});
+
+const aiModelsSchema = z.object({
+  configId: z.string().uuid().optional(),
+  baseUrl: z.string().url().max(500).optional().or(z.literal('')),
+  apiKey: z.string().min(1).max(200).optional(),
   isCustom: z.boolean().optional(),
 });
 
@@ -47,6 +55,107 @@ const answerDraftSchema = z.object({
   mode: z.enum(['quick', 'practice', 'teaching']).default('practice'),
   provider: z.string().max(100).optional(),
 });
+
+type ModelStatus = 'unknown' | 'valid' | 'invalid';
+
+const defaultBaseUrls: Record<string, string> = {
+  openai: 'https://api.openai.com/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+  wenxin: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+};
+
+function toPublicAIConfig(c: AIConfig) {
+  return {
+    id: c.id,
+    provider: c.provider,
+    displayName: c.display_name,
+    baseUrl: c.base_url,
+    model: c.model,
+    isActive: Boolean(c.is_active),
+    isCustom: Boolean(c.is_custom),
+    modelStatus: c.model_status || 'unknown',
+    lastCheckedAt: c.last_checked_at,
+    lastCheckError: c.last_check_error,
+    createdAt: c.created_at,
+  };
+}
+
+function getConfigBaseUrl(aiConfig: AIConfig): string {
+  return aiConfig.base_url || defaultBaseUrls[aiConfig.provider] || 'https://api.openai.com/v1';
+}
+
+async function fetchAIModels(baseUrl: string, apiKey: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`模型列表获取失败: HTTP ${response.status} ${text.slice(0, 200)}`);
+    }
+
+    const data = JSON.parse(text) as {
+      data?: Array<{ id?: string; object?: string; owned_by?: string }>;
+    };
+    const ids = Array.from(new Set((data.data || [])
+      .map((model) => model.id)
+      .filter((id): id is string => Boolean(id))));
+
+    return ids.sort((a, b) => a.localeCompare(b));
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error('模型列表获取超时，请检查 API 地址或网络');
+    }
+    if (error instanceof SyntaxError) {
+      throw new Error('模型列表返回格式无效');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function markAIConfigModelStatus(aiConfig: AIConfig): Promise<{
+  id: string;
+  model: string;
+  status: ModelStatus;
+  checkedAt: string;
+  error?: string;
+}> {
+  const checkedAt = new Date().toISOString();
+  try {
+    const baseUrl = validateAIBaseUrl(getConfigBaseUrl(aiConfig), { role: 'admin' }, Boolean(aiConfig.is_custom), 'runtime');
+    const models = await fetchAIModels(baseUrl!, aiConfig.api_key);
+    const exists = models.includes(aiConfig.model);
+    const status: ModelStatus = exists ? 'valid' : 'invalid';
+    const error = exists ? '' : `模型不在当前 API 可用列表中：${aiConfig.model}`;
+
+    await db.updateAIConfig(aiConfig.id, {
+      model_status: status,
+      last_checked_at: checkedAt,
+      last_check_error: error,
+    });
+
+    return { id: aiConfig.id, model: aiConfig.model, status, checkedAt, error: error || undefined };
+  } catch (error) {
+    const message = (error as Error).message;
+    await db.updateAIConfig(aiConfig.id, {
+      model_status: 'unknown',
+      last_checked_at: checkedAt,
+      last_check_error: message,
+    });
+    return { id: aiConfig.id, model: aiConfig.model, status: 'unknown', checkedAt, error: message };
+  }
+}
 
 const batchTagsSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(200),
@@ -205,25 +314,101 @@ router.put('/settings', authMiddleware, requirePermission('ai_config_manage', '�
 router.get('/config', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
   try {
     const configs = await db.getAIConfigsByUserId(req.user!.id);
-    res.json(configs.map(c => ({
-      id: c.id,
-      provider: c.provider,
-      displayName: c.display_name,
-      baseUrl: c.base_url,
-      model: c.model,
-      isActive: c.is_active,
-      isCustom: c.is_custom,
-      createdAt: c.created_at,
-    })));
+    res.json(configs.map(toPublicAIConfig));
   } catch (error) {
     res.status(500).json({ error: '获取AI配置失败' });
+  }
+});
+
+router.post('/models', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const data = aiModelsSchema.parse(req.body);
+    let baseUrl = data.baseUrl;
+    let apiKey = data.apiKey;
+    let isCustom = data.isCustom;
+
+    if (data.configId) {
+      const existing = await db.getAIConfigByIdForUser(data.configId, req.user!.id);
+      if (!existing) {
+        res.status(404).json({ error: '配置不存在' });
+        return;
+      }
+      baseUrl = baseUrl || getConfigBaseUrl(existing);
+      apiKey = apiKey || existing.api_key;
+      isCustom = isCustom ?? Boolean(existing.is_custom);
+    }
+
+    if (!baseUrl || !apiKey) {
+      res.status(400).json({ error: '请先填写 API 地址和 API 密钥' });
+      return;
+    }
+
+    const normalizedBaseUrl = validateAIBaseUrl(baseUrl, req.user!, Boolean(isCustom), 'runtime');
+    const models = await fetchAIModels(normalizedBaseUrl!, apiKey);
+    res.json({ models: models.map((id) => ({ id })) });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: '输入验证失败', details: error.errors });
+      return;
+    }
+    res.status(500).json({ error: (error as Error).message || '获取模型列表失败' });
+  }
+});
+
+router.post('/config/check-all', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const configs = await db.getAIConfigsByUserId(req.user!.id);
+    const results = [];
+
+    for (const aiConfig of configs) {
+      results.push(await markAIConfigModelStatus(aiConfig));
+    }
+
+    res.json({ results });
+  } catch (error) {
+    res.status(500).json({ error: '检查模型失败: ' + (error as Error).message });
+  }
+});
+
+router.delete('/config/invalid', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const configs = await db.getAIConfigsByUserId(req.user!.id);
+    const invalidConfigs = configs.filter((aiConfig) => aiConfig.model_status === 'invalid');
+    let deleted = 0;
+
+    for (const aiConfig of invalidConfigs) {
+      if (await db.deleteAIConfigForUser(aiConfig.id, req.user!.id)) {
+        deleted += 1;
+      }
+    }
+
+    res.json({ deleted });
+  } catch (error) {
+    res.status(500).json({ error: '清除失效模型失败: ' + (error as Error).message });
   }
 });
 
 router.post('/config', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
   try {
     const data = aiConfigSchema.parse(req.body);
-    const normalizedBaseUrl = validateAIBaseUrl(data.baseUrl, req.user!, Boolean(data.isCustom));
+    const sourceConfig = data.sourceConfigId
+      ? await db.getAIConfigByIdForUser(data.sourceConfigId, req.user!.id)
+      : undefined;
+
+    if (data.sourceConfigId && !sourceConfig) {
+      res.status(404).json({ error: '来源配置不存在' });
+      return;
+    }
+
+    const nextBaseUrl = data.baseUrl || (sourceConfig ? getConfigBaseUrl(sourceConfig) : undefined);
+    const nextApiKey = data.apiKey || sourceConfig?.api_key;
+
+    if (!nextApiKey) {
+      res.status(400).json({ error: '请填写 API 密钥，或选择一个已有自定义提供商复用密钥' });
+      return;
+    }
+
+    const normalizedBaseUrl = validateAIBaseUrl(nextBaseUrl, req.user!, Boolean(data.isCustom));
 
     await db.run('UPDATE ai_configs SET is_active = 0 WHERE user_id = ?', [req.user!.id]);
 
@@ -233,7 +418,7 @@ router.post('/config', authMiddleware, requirePermission('ai_config_manage', '�
       provider: data.provider,
       display_name: data.displayName,
       base_url: normalizedBaseUrl,
-      api_key: data.apiKey,
+      api_key: nextApiKey,
       model: data.model,
       is_active: true,
       is_custom: data.isCustom ? true : false,
@@ -241,15 +426,7 @@ router.post('/config', authMiddleware, requirePermission('ai_config_manage', '�
       updated_at: new Date().toISOString(),
     });
 
-    res.status(201).json({
-      id: aiConfig.id,
-      provider: aiConfig.provider,
-      displayName: aiConfig.display_name,
-      baseUrl: aiConfig.base_url,
-      model: aiConfig.model,
-      isActive: aiConfig.is_active,
-      isCustom: aiConfig.is_custom,
-    });
+    res.status(201).json(toPublicAIConfig(aiConfig));
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: '输入验证失败', details: error.errors });
@@ -279,6 +456,10 @@ router.put('/config/:id', authMiddleware, requirePermission('ai_config_manage', 
       base_url: nextBaseUrl,
       api_key: data.apiKey,
       model: data.model,
+      is_custom: data.isCustom,
+      model_status: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? 'unknown' : undefined,
+      last_checked_at: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? '' : undefined,
+      last_check_error: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? '' : undefined,
     });
 
     if (!updated) {
@@ -286,21 +467,27 @@ router.put('/config/:id', authMiddleware, requirePermission('ai_config_manage', 
       return;
     }
 
-    res.json({
-      id: updated.id,
-      provider: updated.provider,
-      displayName: updated.display_name,
-      baseUrl: updated.base_url,
-      model: updated.model,
-      isActive: updated.is_active,
-      isCustom: updated.is_custom,
-    });
+    res.json(toPublicAIConfig(updated));
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: '输入验证失败', details: error.errors });
       return;
     }
     res.status(500).json({ error: '更新AI配置失败' });
+  }
+});
+
+router.post('/config/:id/check', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const aiConfig = await db.getAIConfigByIdForUser(req.params.id, req.user!.id);
+    if (!aiConfig) {
+      res.status(404).json({ error: '配置不存在' });
+      return;
+    }
+
+    res.json(await markAIConfigModelStatus(aiConfig));
+  } catch (error) {
+    res.status(500).json({ error: '检查模型失败: ' + (error as Error).message });
   }
 });
 
@@ -543,15 +730,6 @@ router.post('/test-config', authMiddleware, requirePermission('ai_config_manage'
     }
 
     const { OpenAICompatibleProvider } = await import('../services/ai.js');
-    const defaultBaseUrls: Record<string, string> = {
-      openai: 'https://api.openai.com/v1',
-      deepseek: 'https://api.deepseek.com/v1',
-      qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      doubao: 'https://ark.cn-beijing.volces.com/api/v3',
-      wenxin: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
-      zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-    };
-
     const baseUrl = validateAIBaseUrl(config.base_url || defaultBaseUrls[config.provider] || 'https://api.openai.com/v1', req.user!, Boolean(config.is_custom));
     const aiProvider = new OpenAICompatibleProvider(
       config.display_name || config.provider,
@@ -563,6 +741,11 @@ router.post('/test-config', authMiddleware, requirePermission('ai_config_manage'
     
     const testPrompt = '请回复"测试成功"';
     const result = await aiProvider.chat([{ role: 'user', content: testPrompt }]);
+    await db.updateAIConfig(config.id, {
+      model_status: 'valid',
+      last_checked_at: new Date().toISOString(),
+      last_check_error: '',
+    });
     
     res.json({ success: true, message: '配置测试成功', result });
   } catch (error) {

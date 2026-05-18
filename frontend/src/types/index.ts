@@ -77,7 +77,22 @@ export interface AIConfig {
   model: string;
   isActive: boolean;
   isCustom?: boolean;
+  modelStatus?: 'unknown' | 'valid' | 'invalid';
+  lastCheckedAt?: string;
+  lastCheckError?: string;
   createdAt: string;
+}
+
+export interface AIModelInfo {
+  id: string;
+}
+
+export interface AIModelCheckResult {
+  id: string;
+  model: string;
+  status: 'unknown' | 'valid' | 'invalid';
+  checkedAt: string;
+  error?: string;
 }
 
 export interface PaginatedResult<T> {
