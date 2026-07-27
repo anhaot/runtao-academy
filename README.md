@@ -32,11 +32,11 @@
 <table>
   <tr>
     <td width="68%"><img src="./docs/images/interview-capture.png" alt="批量记录题目与草稿箱"></td>
-    <td width="32%"><img src="./docs/images/overview.png" alt="技术成长站概览"></td>
+    <td width="32%"><img src="./docs/images/mobile-review.png" alt="手机端背题"></td>
   </tr>
   <tr>
     <td align="center">多题记录、AI 补答案、确认后入库</td>
-    <td align="center">统一的题库与学习工作台</td>
+    <td align="center">手机端随时背题与复习</td>
   </tr>
 </table>
 

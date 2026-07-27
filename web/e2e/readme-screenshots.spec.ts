@@ -38,6 +38,6 @@ test('生成 README 产品截图', async ({ page, request }) => {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/study');
-  await expect(page.getByText('背题模式')).toBeVisible();
-  await page.screenshot({ path: path.join(screenshotDir, 'mobile-study.png'), fullPage: true });
+  await expect(page.getByRole('button', { name: '更多题目操作' })).toBeVisible();
+  await page.screenshot({ path: path.join(screenshotDir, 'mobile-review.png'), fullPage: true });
 });
