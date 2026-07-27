@@ -13,6 +13,7 @@ export default defineConfig({
     timeout: 10_000,
   },
   fullyParallel: false,
+  workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: `http://127.0.0.1:${webPort}`,
