@@ -110,7 +110,7 @@ docker compose logs web
 - 用户
 - 分类
 - 题目
-- 学习进度
+- 学习进度与复习记录
 - AI 配置
 - 系统设置
 
@@ -145,7 +145,7 @@ docker compose logs web
 系统支持：
 
 - SQLite
-- MySQL
+- MariaDB / MySQL
 
 ### SQLite
 
@@ -155,7 +155,7 @@ docker compose logs web
 - 适合单机和轻量部署
 - 默认数据路径在容器内 `/app/data/tech-growth-hub.db`
 
-### MySQL
+### MariaDB / MySQL
 
 适合：
 
@@ -172,7 +172,7 @@ docker compose logs web
 - 初始化数据库
 - 执行迁移
 - 数据校验
-- 切换当前运行数据库
+- 选择下次 API 重启后使用的数据库
 
 建议切库流程：
 
@@ -181,7 +181,8 @@ docker compose logs web
 3. 先测试连接
 4. 初始化和迁移目标库
 5. 做数据校验
-6. 再切换运行库
+6. 选择“重启后使用”
+7. 重启 API，并再次检查 `/api/health/ready`
 
 ---
 

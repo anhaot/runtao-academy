@@ -62,14 +62,16 @@
 
 ```bash
 cd api
-npm install
+cp .env.example .env
+# 无本地 MySQL 时，将 .env 中的 DATABASE_TYPE 改为 sqlite
+npm ci
 ```
 
 前端：
 
 ```bash
 cd web
-npm install
+npm ci
 ```
 
 ### 启动开发环境
@@ -90,8 +92,9 @@ npm run dev
 
 默认情况下：
 
-- 前端跑在 Vite 开发服务器
-- 后端跑在 `tsx watch`
+- 前端由 Vite 运行在 `http://127.0.0.1:3000`
+- 后端由 `tsx watch` 运行在 `http://127.0.0.1:3001`
+- Vite 把 `/api` 代理到 API；可用 `VITE_API_PROXY_TARGET` 覆盖目标地址
 
 ---
 
@@ -147,13 +150,14 @@ npm run e2e:headed
 
 目前覆盖重点：
 
+- 默认管理员首次登录改密
 - 注册开关
 - 批量删除越权
 - AI 配置越权
 - AI 题目接口越权
 - Cookie 写操作 CSRF 防护
 - AI Key 数据库与备份加密
-- 离线复习事件幂等同步
+- 集成题库权限与首页统计
 
 ### 前端 E2E
 
@@ -162,7 +166,11 @@ npm run e2e:headed
 - [login.spec.ts](../web/e2e/login.spec.ts)
 - [questions.spec.ts](../web/e2e/questions.spec.ts)
 - [backup.spec.ts](../web/e2e/backup.spec.ts)
+- [database-migration.spec.ts](../web/e2e/database-migration.spec.ts)
+- [first-login.spec.ts](../web/e2e/first-login.spec.ts)
+- [mobile-layout.spec.ts](../web/e2e/mobile-layout.spec.ts)
 - [mobile-offline.spec.ts](../web/e2e/mobile-offline.spec.ts)
+- [study.spec.ts](../web/e2e/study.spec.ts)
 
 目前覆盖重点：
 
@@ -170,7 +178,9 @@ npm run e2e:headed
 - 新建题目
 - AI 润色预览并保存
 - 备份导出与恢复
-- 手机端记题布局、离线草稿和断网复习同步
+- 数据库迁移与校验
+- 手机端核心布局、滑动切题和离线记题草稿
+- 背题页题目、答案和浏览位置
 
 ### 构建校验
 

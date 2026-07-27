@@ -61,7 +61,9 @@ docker compose up -d --build web
 
 ```bash
 cd api
-npm install
+cp .env.example .env
+# 最简单的本地方案：在 .env 中设置 DATABASE_TYPE=sqlite
+npm ci
 npm run dev
 ```
 
@@ -69,9 +71,11 @@ npm run dev
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
+
+默认开发地址为 Web `http://127.0.0.1:3000`、API `http://127.0.0.1:3001`。Vite 会把 `/api` 请求代理到 API。
 
 ---
 
@@ -97,9 +101,10 @@ MYSQL_DATABASE=tech_growth_hub
 
 AI_ENABLED=true
 DEFAULT_AI_PROVIDER=deepseek
+AUTH_COOKIE_SECURE=auto
 ```
 
-Docker Compose 默认使用 MariaDB 11.4（兼容 MySQL 协议），需要配置：
+当前 `compose.yaml` 固定使用 MariaDB 12.3.2（兼容 MySQL 协议），需要配置：
 
 ```env
 MYSQL_HOST=db
@@ -110,7 +115,7 @@ MYSQL_ROOT_PASSWORD=replace-with-a-different-random-root-password
 MYSQL_DATABASE=tech_growth_hub
 ```
 
-AI 模型至少需要配置一组有效的 Key。
+只有使用 AI 功能时，才需要为实际启用的模型配置有效 Key。
 
 ---
 

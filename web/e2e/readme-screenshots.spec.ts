@@ -30,11 +30,21 @@ test('生成 README 产品截图', async ({ page, request }) => {
   await expect(page.getByText('技术成长站')).toBeVisible();
   await page.screenshot({ path: path.join(screenshotDir, 'overview.png'), fullPage: true });
 
+  await page.goto('/questions');
+  await expect(page.getByRole('heading', { name: '题库', exact: true })).toBeVisible();
+  await expect(page.getByText('Linux 系统负载很高时，应该如何排查？').last()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshotDir, 'question-library.png'), fullPage: true });
+
   await page.goto('/capture');
   await page.getByPlaceholder(/每行一道题/).fill('Nginx 大量 502 如何定位？\nMySQL 慢查询的排查流程是什么？');
   await page.getByRole('button', { name: '保存到草稿箱' }).click();
   await expect(page.getByText('草稿箱（2）')).toBeVisible();
   await page.screenshot({ path: path.join(screenshotDir, 'interview-capture.png'), fullPage: true });
+
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: '备份与恢复', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '用户管理', exact: true })).toBeVisible();
+  await page.screenshot({ path: path.join(screenshotDir, 'settings.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/study');

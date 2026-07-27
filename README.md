@@ -4,7 +4,6 @@
 
 <p align="center">
   <a href="https://github.com/anhaot/tech-growth-hub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/anhaot/tech-growth-hub/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/anhaot/tech-growth-hub/releases"><img alt="Release" src="https://img.shields.io/github/v/release/anhaot/tech-growth-hub?display_name=tag"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/anhaot/tech-growth-hub"></a>
 </p>
 
@@ -31,11 +30,19 @@
 
 <table>
   <tr>
-    <td width="68%"><img src="./docs/images/interview-capture.png" alt="批量记录题目与草稿箱"></td>
+    <td width="50%"><img src="./docs/images/question-library.png" alt="题库管理"></td>
+    <td width="50%"><img src="./docs/images/interview-capture.png" alt="批量记录题目与草稿箱"></td>
+  </tr>
+  <tr>
+    <td align="center">搜索、筛选和维护正式题库</td>
+    <td align="center">多题记录、AI 补答案、确认后入库</td>
+  </tr>
+  <tr>
+    <td width="68%"><img src="./docs/images/settings.png" alt="系统设置与备份"></td>
     <td width="32%"><img src="./docs/images/mobile-review.png" alt="手机端背题"></td>
   </tr>
   <tr>
-    <td align="center">多题记录、AI 补答案、确认后入库</td>
+    <td align="center">权限、备份、用户与系统管理</td>
     <td align="center">手机端随时背题与复习</td>
   </tr>
 </table>
@@ -76,16 +83,6 @@ docker compose up -d --build
 
 访问 `http://127.0.0.1:10089`。默认管理员账号和密码均为 `admin`；首次登录会被强制要求设置符合规则的新密码，完成后才能进入系统。生产环境请同时配置 HTTPS、明确的 `ALLOWED_ORIGINS` 和定期备份。
 
-### 使用发行版
-
-[GitHub Releases](https://github.com/anhaot/tech-growth-hub/releases) 提供：
-
-- GitHub 自动生成的源码 `zip` / `tar.gz`
-- 已构建的 `tech-growth-hub-<version>-prebuilt.tar.gz`
-- `ghcr.io/anhaot/tech-growth-hub-api` 与 `ghcr.io/anhaot/tech-growth-hub-web` 多架构镜像
-
-下载发行包后可使用 `compose.release.yaml` 启动，无需在本机编译源码。
-
 ## 本地开发
 
 要求 Node.js 22+、npm 10+。
@@ -93,6 +90,8 @@ docker compose up -d --build
 ```bash
 # API
 cd api
+cp .env.example .env
+# 无本地 MySQL 时，将 .env 中的 DATABASE_TYPE 改为 sqlite
 npm ci
 npm run dev
 
@@ -126,8 +125,7 @@ tech-growth-hub/
 │   │   └── pages/
 │   └── e2e/                 # 桌面、手机和离线浏览器测试
 ├── docs/                    # 使用、部署、开发和运维文档
-├── compose.yaml             # 源码构建部署
-└── compose.release.yaml     # GHCR 发行镜像部署
+└── compose.yaml             # 从源码构建并启动完整服务
 ```
 
 ## 技术栈
@@ -136,16 +134,16 @@ tech-growth-hub/
 | --- | --- |
 | Web | React 18、TypeScript、Vite 8、React Router、Zustand、Tailwind CSS、IndexedDB、Service Worker |
 | API | Node.js 22、Express、TypeScript、Zod、Helmet、JWT、rate-limiter-flexible |
-| 数据 | SQLite / MySQL、追加式复习事件、完整备份恢复 |
+| 数据 | SQLite / MariaDB / MySQL、学习进度、完整备份恢复 |
 | 测试 | Node Test Runner、Supertest、ESLint、TypeScript、Playwright |
-| 发行 | Docker、Docker Compose、GitHub Actions、GitHub Releases、GHCR |
+| 工程 | Docker、Docker Compose、GitHub Actions CI |
 
 ## 安全设计
 
 - 登录态使用 `HttpOnly` Cookie；前端不持久化 Bearer token
 - 写操作使用双重提交 CSRF 令牌，Cookie 同时启用 `SameSite`
-- AI Key 使用 AES-256-GCM 加密后存入数据库和备份，不进入浏览器、离线题包或 Service Worker Cache
-- Service Worker 只缓存静态应用资源；题包由用户主动下载并按用户隔离
+- AI Key 使用 AES-256-GCM 加密后存入数据库和备份，不进入浏览器或 Service Worker Cache
+- Service Worker 只缓存静态应用资源；离线记题草稿按用户保存在浏览器 IndexedDB
 - API 提供权限校验、速率限制、请求体大小限制、CORS 白名单和安全响应头
 - 生产模式拒绝弱 `JWT_SECRET`，容器使用非 root 用户并提供就绪探针
 - CI 使用锁文件安装、依赖审计、API 回归和真实浏览器测试
@@ -170,6 +168,8 @@ npm audit --omit=dev
 cd ..
 JWT_SECRET=replace-with-at-least-32-characters \
 AI_CONFIG_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+MYSQL_PASSWORD=compose-validation-password \
+MYSQL_ROOT_PASSWORD=compose-validation-root-password \
 docker compose config --quiet
 ```
 
@@ -179,7 +179,7 @@ docker compose config --quiet
 - 语音快速记题与图片 OCR
 - 错题本、知识点掌握热力图和周报
 - 相似题聚类与更精细的复习调度参数
-- 可选的端到端加密离线题包
+- 离线记题草稿的一键清理与可选本地加密
 
 ## 文档
 

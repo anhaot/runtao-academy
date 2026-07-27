@@ -3,7 +3,7 @@ import { RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import { config } from '../config/index.js';
 
 const rateLimiter = new RateLimiterMemory({
-  points: 100,
+  points: config.nodeEnv === 'test' ? 10_000 : 100,
   duration: 60,
 });
 

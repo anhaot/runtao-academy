@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest release and the default branch. Older releases may be asked to upgrade before a fix is backported.
+Security fixes are applied to the default branch. Deployments should update to a current commit that contains the relevant fix.
 
 ## Reporting a vulnerability
 

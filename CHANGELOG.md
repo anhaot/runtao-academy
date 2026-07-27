@@ -9,9 +9,9 @@ The format loosely follows Keep a Changelog, with sections grouped by release.
 ### Added
 
 - Interview capture inbox with multi-question offline drafts, batch AI answer generation, manual review, and explicit import into the official question bank.
-- Spaced-repetition memory mode with due/new queues, four-level ratings, downloadable offline packs, and idempotent reconnect sync.
-- Installable PWA shell, mobile bottom navigation, safe-area layout, production browser tests, and real README screenshots.
-- Source-build and release-image Compose files, prebuilt release bundles, GHCR publishing, CI, Dependabot, and health probes.
+- Responsive study and quiz modes with saved browsing progress, filtering, bookmarks, and mobile controls.
+- Installable PWA shell, mobile bottom navigation, safe-area layout, offline interview drafts, browser tests, and real README screenshots.
+- Source-build Docker Compose deployment, CI, and health probes.
 - AES-256-GCM encryption for persisted AI credentials and exported backups.
 
 - AI model configuration maintenance: model availability checks, invalid-model status badges, and one-click cleanup for invalid model configs.

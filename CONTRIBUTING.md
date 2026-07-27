@@ -27,14 +27,16 @@
 
 ```bash
 cd api
-npm install
+cp .env.example .env
+# 无本地 MySQL 时，将 .env 中的 DATABASE_TYPE 改为 sqlite
+npm ci
 ```
 
 前端：
 
 ```bash
 cd web
-npm install
+npm ci
 ```
 
 ### 2. 启动开发环境
@@ -54,6 +56,8 @@ npm run dev
 ```
 
 ### 3. Docker 方式
+
+先按 [README 的快速开始](./README.md#快速开始) 准备根目录 `.env`，再启动：
 
 ```bash
 docker compose up -d --build
