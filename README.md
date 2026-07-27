@@ -1,302 +1,200 @@
-# 润涛题苑
+# 技术成长站
 
-> Runtao Academy 是一套面向题库沉淀、学习复习、标签治理与 AI 辅助内容生产的现代化题库系统。
-
-<p align="center">
-  <strong>题库管理</strong>
-  <span> · </span>
-  <strong>学习复习</strong>
-  <span> · </span>
-  <strong>AI 内容生产</strong>
-  <span> · </span>
-  <strong>标签治理</strong>
-  <span> · </span>
-  <strong>权限与备份</strong>
-</p>
+> Tech Growth Hub：面向 IT 学习与技术成长的开源题库、刷题和知识整理平台。
 
 <p align="center">
-  <a href="./docs/USER_GUIDE.md">用户手册</a>
-  <span> · </span>
-  <a href="./docs/AI_GUIDE.md">AI 指南</a>
-  <span> · </span>
-  <a href="./docs/DEPLOYMENT.md">部署说明</a>
-  <span> · </span>
-  <a href="./docs/DEVELOPMENT.md">开发指南</a>
+  <a href="https://github.com/anhaot/tech-growth-hub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/anhaot/tech-growth-hub/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/anhaot/tech-growth-hub/releases"><img alt="Release" src="https://img.shields.io/github/v/release/anhaot/tech-growth-hub?display_name=tag"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/anhaot/tech-growth-hub"></a>
 </p>
 
----
+技术成长站把零散遇到的技术问题，整理成一条可持续的成长路径：快速记题、AI 补全、人工确认入库、日常背题与答题、收藏回看和数据备份。适合运维、开发、测试、网络、安全等 IT 方向，也可以作为个人知识库或团队内部题库。
 
-## 项目定位
+![技术成长站概览](./docs/images/overview.png)
 
-润涛题苑不是单纯的题目增删改查页面，而是一套覆盖“题目整理、学习使用、AI 生产、标签治理、权限控制、备份恢复”的完整题库工作流。
+## 为什么做这个项目
 
-它适合这些场景：
+很多题库只解决“存题”，技术成长站更关注从遇到问题到真正记住的完整流程：
 
-- 个人知识库、面试问答、学习笔记沉淀
-- 教培题库、团队内部学习库、多人协作题库
-- 使用 AI 批量生题、补答案、润色题目、建议标签
-- 需要分类授权、独立题库、集成题库和管理员运维能力的题库系统
+```text
+现场记题 → 草稿箱 → AI 生成答案 → 人工检查 → 正式题库 → 背题 / 答题 → 收藏回看
+```
 
----
+- 面试或工作现场只记录题干，允许一次录入多道题
+- 草稿与正式题库隔离，未确认的 AI 内容不会污染题库
+- 支持背题与答题两种学习模式、进度记录和收藏回看
+- 支持 PWA 安装，快速记题草稿可保存在当前浏览器
+- 支持 Markdown、分类、标签、收藏、搜索、导入导出和重复题治理
+- AI Key 只保存在服务端，支持多种 OpenAI 兼容模型服务
 
-## 快速导航
+## 产品截图
 
-| 入口 | 说明 |
-| --- | --- |
-| [快速开始](#快速开始) | 使用 Docker 或本地开发模式启动项目 |
-| [核心能力](#核心能力) | 了解题库、学习、AI、权限与运维模块 |
-| [AI 工作流](#ai-工作流) | 查看 AI 答案、AI 润色、AI 批量生题的使用边界 |
-| [常用命令](#常用命令) | 构建、检查、测试与容器运维命令 |
-| [文档中心](#文档中心) | 部署、运维、开发、用户、AI、权限等专题文档 |
-
----
+<table>
+  <tr>
+    <td width="68%"><img src="./docs/images/interview-capture.png" alt="批量记录题目与草稿箱"></td>
+    <td width="32%"><img src="./docs/images/overview.png" alt="技术成长站概览"></td>
+  </tr>
+  <tr>
+    <td align="center">多题记录、AI 补答案、确认后入库</td>
+    <td align="center">统一的题库与学习工作台</td>
+  </tr>
+</table>
 
 ## 核心能力
 
 | 模块 | 能力 |
 | --- | --- |
-| 题库管理 | 创建、编辑、删除题目，按关键词、分类、难度、标签筛选，支持导入导出和批量操作 |
-| 学习模式 | 背题、答题、收藏、最近学习记录、学习进度保存与恢复 |
-| 标签治理 | 标签统计、搜索、重命名、批量替换、规范化、别名归并、健康检查 |
-| AI 能力 | AI 批量生题、AI 答案草稿、AI 题目润色、AI 助手、AI 批量标签 |
-| 用户与权限 | 管理员、独立题库用户、集成题库用户、分类范围授权、细粒度权限模型 |
-| 数据与运维 | SQLite / MySQL 双数据库、连接测试、迁移、切换、完整备份导出与恢复 |
-
----
+| 面试记录 | 一行一道或空行分隔多行题干，本机离线草稿，批量 AI 生成答案，检查后选择性入库 |
+| 题库管理 | 题目答案可选、保存前 AI 补全、Markdown、分类、难度、标签、搜索、批量操作和重复题合并 |
+| 学习模式 | 背题、答题、随机切题、学习进度和收藏回看 |
+| 离线体验 | PWA 应用壳与浏览器本地记题草稿 |
+| AI 辅助 | 批量生题、原始题干生成答案、答案草稿、题目润色、标签建议和 AI 助手 |
+| 用户权限 | 独立题库、集成题库、分类范围授权和细粒度权限 |
+| 数据运维 | MariaDB / MySQL 默认持久化、SQLite 可选、完整备份恢复与数据库迁移 |
 
 ## 快速开始
 
-### Docker 运行
+### Docker Compose
 
 ```bash
-git clone https://github.com/anhaot/runtao-academy.git
-cd runtao-academy
+git clone https://github.com/anhaot/tech-growth-hub.git
+cd tech-growth-hub
 cp .env.example .env
-docker-compose up -d --build
 ```
 
-默认访问地址：
-
-| 服务 | 地址 |
-| --- | --- |
-| 前端 | `http://127.0.0.1:10089` |
-| 健康检查 | `http://127.0.0.1:10089/api/health` |
-
-### 本地开发
-
-后端：
+先分别生成并填写 `.env` 中的 `JWT_SECRET`、`AI_CONFIG_ENCRYPTION_KEY`、`MYSQL_PASSWORD` 与 `MYSQL_ROOT_PASSWORD`（四个值不要复用）：
 
 ```bash
-cd backend
-npm install
+openssl rand -hex 32
+```
+
+然后启动：
+
+```bash
+docker compose up -d --build
+```
+
+访问 `http://127.0.0.1:10089`。默认管理员账号和密码均为 `admin`；首次登录会被强制要求设置符合规则的新密码，完成后才能进入系统。生产环境请同时配置 HTTPS、明确的 `ALLOWED_ORIGINS` 和定期备份。
+
+### 使用发行版
+
+[GitHub Releases](https://github.com/anhaot/tech-growth-hub/releases) 提供：
+
+- GitHub 自动生成的源码 `zip` / `tar.gz`
+- 已构建的 `tech-growth-hub-<version>-prebuilt.tar.gz`
+- `ghcr.io/anhaot/tech-growth-hub-api` 与 `ghcr.io/anhaot/tech-growth-hub-web` 多架构镜像
+
+下载发行包后可使用 `compose.release.yaml` 启动，无需在本机编译源码。
+
+## 本地开发
+
+要求 Node.js 22+、npm 10+。
+
+```bash
+# API
+cd api
+npm ci
+npm run dev
+
+# Web（另一个终端）
+cd web
+npm ci
 npm run dev
 ```
 
-前端：
+默认端口为 Web `3000`、API `3001`。开发、调试和数据库说明见 [开发指南](./docs/development.md)。
 
-```bash
-cd frontend
-npm install
-npm run dev
+## 项目结构
+
+```text
+tech-growth-hub/
+├── api/                     # Express API、数据库和 AI 服务
+│   ├── src/
+│   │   ├── config/
+│   │   ├── database/
+│   │   ├── middleware/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── utils/
+│   └── tests/               # API 安全与回归测试
+├── web/                     # React PWA
+│   ├── public/              # Manifest、图标和 Service Worker
+│   ├── src/
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   └── pages/
+│   └── e2e/                 # 桌面、手机和离线浏览器测试
+├── docs/                    # 使用、部署、开发和运维文档
+├── compose.yaml             # 源码构建部署
+└── compose.release.yaml     # GHCR 发行镜像部署
 ```
-
-默认情况下后端监听 `3001` 端口，前端由 Vite 提供开发服务。更多部署方式见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)。
-
----
-
-## AI 工作流
-
-| 功能 | 定位 | 适合场景 |
-| --- | --- | --- |
-| AI 答案 | 只补 `answer`、`explanation`、`tags`，不改题干、标题和难度 | 缺答案、答案偏弱、需要速记版或教学版表达 |
-| AI 润色 | 优化整题表达、结构和可读性 | 原题质量较弱、题干表达不清、需要更适合教学 |
-| AI 批量生题 | 围绕主题批量生成题目 | 快速扩充题量、生成练习题、生成教学题 |
-| AI 助手 | 辅助理解、生成草稿、处理内容 | 题目运营和内容生产过程中的即时辅助 |
-
-AI 润色支持 `轻润色` 与 `深润色` 两档；AI 答案与 AI 批量生题支持 `速记版`、`练习版`、`教学版`。完整配置说明见 [docs/AI_GUIDE.md](./docs/AI_GUIDE.md)。
-
----
 
 ## 技术栈
 
 | 层 | 技术 |
 | --- | --- |
-| 前端 | React 18、TypeScript、Vite、React Router、Zustand、Tailwind CSS、Axios、Playwright |
-| 后端 | Node.js 20、Express、TypeScript、Zod、JWT、Helmet、rate-limiter-flexible、better-sqlite3、mysql2、multer |
-| 数据 | SQLite 默认可用，MySQL 可选 |
-| 部署 | Docker、docker-compose、Nginx 静态资源服务 |
+| Web | React 18、TypeScript、Vite 8、React Router、Zustand、Tailwind CSS、IndexedDB、Service Worker |
+| API | Node.js 22、Express、TypeScript、Zod、Helmet、JWT、rate-limiter-flexible |
+| 数据 | SQLite / MySQL、追加式复习事件、完整备份恢复 |
+| 测试 | Node Test Runner、Supertest、ESLint、TypeScript、Playwright |
+| 发行 | Docker、Docker Compose、GitHub Actions、GitHub Releases、GHCR |
 
----
+## 安全设计
 
-## 项目结构
+- 登录态使用 `HttpOnly` Cookie；前端不持久化 Bearer token
+- 写操作使用双重提交 CSRF 令牌，Cookie 同时启用 `SameSite`
+- AI Key 使用 AES-256-GCM 加密后存入数据库和备份，不进入浏览器、离线题包或 Service Worker Cache
+- Service Worker 只缓存静态应用资源；题包由用户主动下载并按用户隔离
+- API 提供权限校验、速率限制、请求体大小限制、CORS 白名单和安全响应头
+- 生产模式拒绝弱 `JWT_SECRET`，容器使用非 root 用户并提供就绪探针
+- CI 使用锁文件安装、依赖审计、API 回归和真实浏览器测试
 
-```text
-runtao-academy/
-├─ backend/
-│  ├─ src/
-│  │  ├─ config/       # 配置、数据库运行时配置
-│  │  ├─ database/     # 数据库访问层
-│  │  ├─ middleware/   # 鉴权、限流、错误处理
-│  │  ├─ routes/       # API 路由
-│  │  ├─ services/     # AI 等服务层
-│  │  ├─ types/        # 类型定义
-│  │  └─ utils/        # 标签、AI 安全等工具
-│  ├─ test/            # 后端安全回归测试
-│  └─ Dockerfile
-├─ frontend/
-│  ├─ src/
-│  │  ├─ api/          # Axios API 封装
-│  │  ├─ components/   # 公共组件
-│  │  ├─ lib/          # 渲染、格式化、权限辅助函数
-│  │  ├─ pages/        # 页面层
-│  │  ├─ store/        # Zustand 状态管理
-│  │  └─ types/        # 前端类型定义
-│  ├─ e2e/             # Playwright 冒烟与回归测试
-│  └─ Dockerfile
-├─ docs/               # 专题文档
-├─ docker-compose.yml
-├─ .env.example
-├─ CHANGELOG.md
-├─ CONTRIBUTING.md
-└─ README.md
-```
+安全问题请按 [SECURITY.md](./SECURITY.md) 中的私下报告方式提交。
 
----
-
-## 常用命令
-
-### 后端
+## 验证命令
 
 ```bash
-cd backend
-npm run dev
-npm run build
+cd api
 npm run lint
 npm run typecheck
-npm run test
-```
+npm test
+npm audit --omit=dev
 
-### 前端
-
-```bash
-cd frontend
-npm run dev
-npm run build
-npm run lint
-npm run e2e
-```
-
-### Docker
-
-```bash
-docker-compose up -d --build
-docker-compose ps
-docker logs runtao-academy-backend
-docker logs runtao-academy-frontend
-```
-
----
-
-## 环境变量
-
-常用变量：
-
-```env
-PORT=3001
-NODE_ENV=production
-
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRES_IN=7d
-
-DATABASE_TYPE=sqlite
-SQLITE_PATH=./data/runtao-academy.db
-
-AI_ENABLED=true
-DEFAULT_AI_PROVIDER=deepseek
-
-DEEPSEEK_API_KEY=
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_MODEL=deepseek-chat
-
-ALLOWED_ORIGINS=http://localhost,http://localhost:3000
-```
-
-更多变量见 [.env.example](./.env.example) 和 [backend/.env.example](./backend/.env.example)。
-
-补充说明：
-
-- 不配置 `MYSQL_*` 时，默认可直接使用 SQLite
-- 不配置 AI Key 时，AI 功能不会正常工作
-- 生产环境必须替换 `JWT_SECRET`，并为 `ALLOWED_ORIGINS` 设置明确白名单
-
----
-
-## 安全与权限
-
-当前已覆盖的基础安全能力：
-
-- `HttpOnly Cookie` 优先的登录态方案
-- 登录接口和 AI 接口限流
-- `Helmet` 安全头
-- 自定义 AI 地址安全校验
-- 题目访问权限边界校验
-- 管理员专属备份导出与恢复
-
-正式环境建议继续配置 HTTPS、独立密钥、定期备份和依赖更新。权限模型见 [docs/PERMISSIONS.md](./docs/PERMISSIONS.md)。
-
----
-
-## 测试与验证
-
-推荐提交前执行：
-
-```bash
-cd backend
-npm run lint
-npm run build
-npm run test
-
-cd ../frontend
+cd ../web
 npm run lint
 npm run build
 npm run e2e
+npm audit --omit=dev
+
+cd ..
+JWT_SECRET=replace-with-at-least-32-characters \
+AI_CONFIG_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+docker compose config --quiet
 ```
 
-当前验证覆盖 TypeScript 构建检查、ESLint 静态检查、后端安全回归测试和 Playwright 浏览器级回归。
+## 后续方向
 
----
+- Anki / Markdown 学习记录导出
+- 语音快速记题与图片 OCR
+- 错题本、知识点掌握热力图和周报
+- 相似题聚类与更精细的复习调度参数
+- 可选的端到端加密离线题包
 
-## 文档中心
+## 文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [CHANGELOG.md](./CHANGELOG.md) | 版本更新记录 |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献方式和开发协作说明 |
-| [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | 部署、容器和生产环境说明 |
-| [docs/OPERATIONS.md](./docs/OPERATIONS.md) | 运维、备份、恢复和排障 |
-| [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | 开发环境、目录约定和工程说明 |
-| [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) | 用户操作说明 |
-| [docs/AI_GUIDE.md](./docs/AI_GUIDE.md) | AI 能力、配置和使用边界 |
-| [docs/PERMISSIONS.md](./docs/PERMISSIONS.md) | 用户角色、分类范围和权限模型 |
-| [LICENSE](./LICENSE) | 开源许可证 |
+| [用户手册](./docs/user-guide.md) | 题库、学习、记题和设置操作 |
+| [AI 指南](./docs/ai.md) | AI 配置、答案模式和安全边界 |
+| [部署说明](./docs/deployment.md) | Docker、Compose 与生产配置 |
+| [运维手册](./docs/operations.md) | 健康检查、备份、恢复和排障 |
+| [开发指南](./docs/development.md) | 开发环境、目录约定和测试 |
+| [权限说明](./docs/permissions.md) | 用户类型、分类范围和权限模型 |
+| [安全审查](./docs/security-audit.md) | 已修复项、剩余风险和复核方式 |
+| [贡献指南](./CONTRIBUTING.md) | Issue、分支、测试和 PR 约定 |
+| [更新日志](./CHANGELOG.md) | 版本变更记录 |
 
----
-
-## 版本重点
-
-最近版本主要补齐了产品链路和安全边界：
-
-- `AI 答案` 从 `AI 润色` 中拆分出来，专门负责答案、解析和标签建议
-- `AI 润色` 支持 `轻润色 / 深润色` 两档，默认走 `轻润色`
-- `AI 批量生题` 的结果解析更稳，兼容更多 AI JSON 返回格式
-- Markdown、列表、分条内容展示更稳定
-- AI 路由补上题目访问权限边界校验
-- 登录鉴权切换到 `HttpOnly Cookie` 优先模式
-- AI 自定义地址做了 SSRF 风险收口
-- 备份导出和恢复限制为管理员专用
-
----
-
-## 许可证
+## License
 
 本项目基于 [LICENSE](./LICENSE) 中的条款发布。

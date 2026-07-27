@@ -7,7 +7,11 @@ data
 uploads
 *.log
 .agents
-frontend/playwright-report
-frontend/test-results
-frontend/dist
-backend/dist
+.codex
+web/playwright-report
+web/test-results
+web/dist
+api/dist
+.playwright-cli
+playwright-cli.json
+output

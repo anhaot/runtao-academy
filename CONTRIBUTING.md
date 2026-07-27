@@ -1,8 +1,8 @@
 # 贡献指南
 
-感谢你关注润涛题苑。
+感谢你关注技术成长站。
 
-本项目面向题苑管理、学习流程和 AI 辅助内容生产场景，欢迎修复缺陷、补充测试、优化文档和提出功能改进。
+本项目面向 IT 知识管理、学习训练和 AI 辅助内容生产场景，欢迎修复缺陷、补充测试、优化文档和提出功能改进。
 
 ## 贡献方式
 
@@ -26,14 +26,14 @@
 后端：
 
 ```bash
-cd backend
+cd api
 npm install
 ```
 
 前端：
 
 ```bash
-cd frontend
+cd web
 npm install
 ```
 
@@ -42,21 +42,21 @@ npm install
 后端：
 
 ```bash
-cd backend
+cd api
 npm run dev
 ```
 
 前端：
 
 ```bash
-cd frontend
+cd web
 npm run dev
 ```
 
 ### 3. Docker 方式
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ## 提交规范
@@ -67,7 +67,7 @@ docker-compose up -d --build
 
 - `feat: add AI polishing preview editor`
 - `fix: restrict question access by assigned categories`
-- `docs: refresh README for Runtao Academy branding`
+- `docs: refresh README for Tech Growth Hub branding`
 - `test: add e2e coverage for backup restore`
 
 ## 代码要求
@@ -83,7 +83,7 @@ docker-compose up -d --build
 后端：
 
 ```bash
-cd backend
+cd api
 npm run lint
 npm run build
 npm run test
@@ -92,7 +92,7 @@ npm run test
 前端：
 
 ```bash
-cd frontend
+cd web
 npm run lint
 npm run build
 npm run e2e

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible defect in Runtao Academy
+about: Report a reproducible defect in Tech Growth Hub
 title: "[Bug] "
 labels: bug
 assignees: ""

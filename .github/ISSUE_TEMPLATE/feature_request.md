@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an improvement for Runtao Academy
+about: Suggest an improvement for Tech Growth Hub
 title: "[Feature] "
 labels: enhancement
 assignees: ""

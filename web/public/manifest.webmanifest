@@ -1,0 +1,19 @@
+{
+  "name": "技术成长站",
+  "short_name": "成长站",
+  "description": "面向 IT 技术成长的题库、刷题与快速记题平台",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

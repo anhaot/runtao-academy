@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm run lint
+        working-directory: api
+      - run: npm run typecheck
+        working-directory: api
+      - run: npm test
+        working-directory: api
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: api
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: web
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npm run e2e
+        working-directory: web
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: JWT_SECRET=ci-only-secret-with-more-than-32-characters AI_CONFIG_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 docker compose config --quiet
