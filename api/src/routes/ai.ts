@@ -16,14 +16,22 @@ const aiConfigSchema = z.object({
   provider: z.string().min(1).max(50),
   displayName: z.string().max(100).optional(),
   baseUrl: z.string().url().max(500).optional().or(z.literal('')),
-  apiKey: z.string().min(1).max(200).optional(),
+  apiKey: z.string().min(1).max(500).optional(),
   model: z.string().min(1).max(100),
   isCustom: z.boolean().optional(),
   sourceConfigId: z.string().uuid().optional(),
+  credentialId: z.string().uuid().optional(),
+});
+
+const aiCredentialSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  baseUrl: z.string().url().max(500),
+  apiKey: z.string().trim().min(1).max(500),
 });
 
 const aiModelsSchema = z.object({
   configId: z.string().uuid().optional(),
+  credentialId: z.string().uuid().optional(),
   baseUrl: z.string().url().max(500).optional().or(z.literal('')),
   apiKey: z.string().min(1).max(200).optional(),
   isCustom: z.boolean().optional(),
@@ -86,11 +94,24 @@ function toPublicAIConfig(c: AIConfig) {
     model: c.model,
     isActive: Boolean(c.is_active),
     isCustom: Boolean(c.is_custom),
+    credentialId: c.credential_id,
     modelStatus: c.model_status || 'unknown',
     lastCheckedAt: c.last_checked_at,
     lastCheckError: c.last_check_error,
     createdAt: c.created_at,
   };
+}
+
+function toPublicAICredential(c: { id: string; name: string; base_url: string; created_at: string }) {
+  return { id: c.id, name: c.name, baseUrl: c.base_url, createdAt: c.created_at };
+}
+
+function validateCredentialKey(baseUrl: string, apiKey: string): string {
+  const trimmed = apiKey.trim();
+  if (new URL(baseUrl).hostname.toLowerCase() === 'integrate.api.nvidia.com' && !trimmed.startsWith('nvapi-')) {
+    throw new Error('NVIDIA API Key 格式无效：应使用 build.nvidia.com 生成、以 nvapi- 开头的完整密钥');
+  }
+  return trimmed;
 }
 
 function getConfigBaseUrl(aiConfig: AIConfig): string {
@@ -147,24 +168,47 @@ async function markAIConfigModelStatus(aiConfig: AIConfig): Promise<{
     const baseUrl = validateAIBaseUrl(getConfigBaseUrl(aiConfig), { role: 'admin' }, Boolean(aiConfig.is_custom), 'runtime');
     const models = await fetchAIModels(baseUrl!, aiConfig.api_key);
     const exists = models.includes(aiConfig.model);
-    const status: ModelStatus = exists ? 'valid' : 'invalid';
-    const error = exists ? '' : `模型不在当前 API 可用列表中：${aiConfig.model}`;
+    if (!exists) {
+      const error = `模型不在当前 API 可用列表中：${aiConfig.model}`;
+      await db.updateAIConfig(aiConfig.id, {
+        model_status: 'invalid',
+        last_checked_at: checkedAt,
+        last_check_error: error,
+      });
+      return { id: aiConfig.id, model: aiConfig.model, status: 'invalid', checkedAt, error };
+    }
 
+    // /models is a provider-wide catalog on services such as NVIDIA. A tiny real
+    // completion is required to verify that this account can actually invoke it.
+    const baseUrlForRuntime = validateAIBaseUrl(getConfigBaseUrl(aiConfig), { role: 'admin' }, Boolean(aiConfig.is_custom), 'runtime');
+    const { OpenAICompatibleProvider } = await import('../services/ai.js');
+    const provider = new OpenAICompatibleProvider(
+      aiConfig.display_name || aiConfig.provider,
+      aiConfig.api_key,
+      aiConfig.model,
+      baseUrlForRuntime,
+      90000
+    );
+    await provider.chat([{ role: 'user', content: 'Reply with OK.' }], { maxTokens: 8, temperature: 0 });
+
+    await db.updateAIConfig(aiConfig.id, {
+      model_status: 'valid',
+      last_checked_at: checkedAt,
+      last_check_error: '',
+    });
+
+    return { id: aiConfig.id, model: aiConfig.model, status: 'valid', checkedAt };
+  } catch (error) {
+    const message = (error as Error).message;
+    const status: ModelStatus = /当前账户无权调用|API 请求失败（HTTP 4(?!29)\d\d）/.test(message)
+      ? 'invalid'
+      : 'unknown';
     await db.updateAIConfig(aiConfig.id, {
       model_status: status,
       last_checked_at: checkedAt,
-      last_check_error: error,
-    });
-
-    return { id: aiConfig.id, model: aiConfig.model, status, checkedAt, error: error || undefined };
-  } catch (error) {
-    const message = (error as Error).message;
-    await db.updateAIConfig(aiConfig.id, {
-      model_status: 'unknown',
-      last_checked_at: checkedAt,
       last_check_error: message,
     });
-    return { id: aiConfig.id, model: aiConfig.model, status: 'unknown', checkedAt, error: message };
+    return { id: aiConfig.id, model: aiConfig.model, status, checkedAt, error: message };
   }
 }
 
@@ -292,11 +336,20 @@ async function getAccessibleQuestion(user: User, questionId: string) {
 router.get('/status', authMiddleware, requirePermission('ai_use', '没有AI使用权限'), async (req: AuthRequest, res: Response) => {
   const userConfigs = await db.getAIConfigsByUserId(req.user!.id);
   const activeConfig = userConfigs.find(c => c.is_active);
+  const availableModels = userConfigs.map(c => ({
+    id: c.id,
+    label: `${c.display_name || c.provider} · ${c.model}`,
+    provider: c.provider,
+    model: c.model,
+    isActive: Boolean(c.is_active),
+  }));
   
   res.json({
     enabled: config.ai.enabled,
-    defaultProvider: activeConfig?.provider || config.ai.defaultProvider,
-    availableProviders: userConfigs.filter(c => c.is_active).map(c => c.display_name || c.provider),
+    defaultProvider: activeConfig?.display_name || activeConfig?.provider || config.ai.defaultProvider,
+    defaultConfigId: activeConfig?.id,
+    availableProviders: userConfigs.map(c => c.display_name || c.provider),
+    availableModels,
   });
 });
 
@@ -331,12 +384,94 @@ router.get('/config', authMiddleware, requirePermission('ai_config_manage', '没
   }
 });
 
+router.get('/credentials', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  const credentials = await db.getAICredentialsByUserId(req.user!.id);
+  res.json(credentials.map(toPublicAICredential));
+});
+
+router.post('/credentials', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const data = aiCredentialSchema.parse(req.body);
+    const baseUrl = validateAIBaseUrl(data.baseUrl, req.user!, true);
+    const apiKey = validateCredentialKey(baseUrl!, data.apiKey);
+    const credential = await db.createAICredential({
+      id: randomUUID(),
+      user_id: req.user!.id,
+      name: data.name,
+      base_url: baseUrl!,
+      api_key: apiKey,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    res.status(201).json(toPublicAICredential(credential));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: '输入验证失败', details: error.errors });
+      return;
+    }
+    res.status(400).json({ error: (error as Error).message || '创建 API 凭据失败' });
+  }
+});
+
+router.put('/credentials/:id', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  try {
+    const data = aiCredentialSchema.partial().parse(req.body);
+    const existing = await db.getAICredentialByIdForUser(req.params.id, req.user!.id);
+    if (!existing) {
+      res.status(404).json({ error: 'API 凭据不存在' });
+      return;
+    }
+    const baseUrl = data.baseUrl !== undefined
+      ? validateAIBaseUrl(data.baseUrl, req.user!, true)!
+      : existing.base_url;
+    const apiKey = data.apiKey !== undefined
+      ? validateCredentialKey(baseUrl, data.apiKey)
+      : existing.api_key;
+    const updated = await db.updateAICredential(req.params.id, req.user!.id, {
+      name: data.name,
+      base_url: baseUrl,
+      api_key: apiKey,
+    });
+    res.json(toPublicAICredential(updated!));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: '输入验证失败', details: error.errors });
+      return;
+    }
+    res.status(400).json({ error: (error as Error).message || '更新 API 凭据失败' });
+  }
+});
+
+router.delete('/credentials/:id', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
+  const result = await db.deleteAICredentialForUser(req.params.id, req.user!.id);
+  if (result === 'missing') {
+    res.status(404).json({ error: 'API 凭据不存在' });
+    return;
+  }
+  if (result === 'in_use') {
+    res.status(409).json({ error: '该凭据仍被模型配置使用，请先删除或切换相关模型' });
+    return;
+  }
+  res.json({ message: 'API 凭据已删除' });
+});
+
 router.post('/models', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
   try {
     const data = aiModelsSchema.parse(req.body);
     let baseUrl = data.baseUrl;
     let apiKey = data.apiKey;
     let isCustom = data.isCustom;
+
+    if (data.credentialId) {
+      const credential = await db.getAICredentialByIdForUser(data.credentialId, req.user!.id);
+      if (!credential) {
+        res.status(404).json({ error: 'API 凭据不存在' });
+        return;
+      }
+      baseUrl = credential.base_url;
+      apiKey = credential.api_key;
+      isCustom = true;
+    }
 
     if (data.configId) {
       const existing = await db.getAIConfigByIdForUser(data.configId, req.user!.id);
@@ -369,11 +504,17 @@ router.post('/models', authMiddleware, requirePermission('ai_config_manage', '�
 router.post('/config/check-all', authMiddleware, requirePermission('ai_config_manage', '没有AI配置权限'), async (req: AuthRequest, res: Response) => {
   try {
     const configs = await db.getAIConfigsByUserId(req.user!.id);
-    const results = [];
-
-    for (const aiConfig of configs) {
-      results.push(await markAIConfigModelStatus(aiConfig));
-    }
+    // Keep a small concurrency cap so a slow provider does not block every
+    // other model, while avoiding an unbounded burst against the upstream API.
+    const results = new Array<Awaited<ReturnType<typeof markAIConfigModelStatus>>>(configs.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < configs.length) {
+        const index = cursor++;
+        results[index] = await markAIConfigModelStatus(configs[index]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, configs.length) }, worker));
 
     res.json({ results });
   } catch (error) {
@@ -411,8 +552,16 @@ router.post('/config', authMiddleware, requirePermission('ai_config_manage', '�
       return;
     }
 
-    const nextBaseUrl = data.baseUrl || (sourceConfig ? getConfigBaseUrl(sourceConfig) : undefined);
-    const nextApiKey = data.apiKey || sourceConfig?.api_key;
+    const credential = data.credentialId
+      ? await db.getAICredentialByIdForUser(data.credentialId, req.user!.id)
+      : undefined;
+    if (data.credentialId && !credential) {
+      res.status(404).json({ error: 'API 凭据不存在' });
+      return;
+    }
+
+    const nextBaseUrl = credential?.base_url || data.baseUrl || (sourceConfig ? getConfigBaseUrl(sourceConfig) : undefined);
+    const nextApiKey = credential?.api_key || data.apiKey || sourceConfig?.api_key;
 
     if (!nextApiKey) {
       res.status(400).json({ error: '请填写 API 密钥，或选择一个已有自定义提供商复用密钥' });
@@ -433,6 +582,7 @@ router.post('/config', authMiddleware, requirePermission('ai_config_manage', '�
       model: data.model,
       is_active: true,
       is_custom: data.isCustom ? true : false,
+      credential_id: credential?.id,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -443,7 +593,7 @@ router.post('/config', authMiddleware, requirePermission('ai_config_manage', '�
       res.status(400).json({ error: '输入验证失败', details: error.errors });
       return;
     }
-    res.status(500).json({ error: '创建AI配置失败' });
+    res.status(500).json({ error: '创建AI配置失败: ' + (error as Error).message });
   }
 });
 
@@ -457,20 +607,29 @@ router.put('/config/:id', authMiddleware, requirePermission('ai_config_manage', 
     }
     
     const nextIsCustom = data.isCustom ?? existing.is_custom;
-    const nextBaseUrl = data.baseUrl !== undefined
+    const credential = data.credentialId
+      ? await db.getAICredentialByIdForUser(data.credentialId, req.user!.id)
+      : undefined;
+    if (data.credentialId && !credential) {
+      res.status(404).json({ error: 'API 凭据不存在' });
+      return;
+    }
+    const nextBaseUrl = credential?.base_url || (data.baseUrl !== undefined
       ? validateAIBaseUrl(data.baseUrl, req.user!, Boolean(nextIsCustom))
-      : existing.base_url;
+      : existing.base_url);
+    const credentialChanged = data.credentialId !== undefined && data.credentialId !== existing.credential_id;
 
     const updated = await db.updateAIConfig(req.params.id, {
       provider: data.provider,
       display_name: data.displayName,
       base_url: nextBaseUrl,
-      api_key: data.apiKey,
+      api_key: credential?.api_key || data.apiKey,
       model: data.model,
       is_custom: data.isCustom,
-      model_status: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? 'unknown' : undefined,
-      last_checked_at: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? '' : undefined,
-      last_check_error: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined ? '' : undefined,
+      credential_id: data.isCustom === false ? '' : data.credentialId,
+      model_status: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined || credentialChanged ? 'unknown' : undefined,
+      last_checked_at: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined || credentialChanged ? '' : undefined,
+      last_check_error: data.model !== undefined || data.baseUrl !== undefined || data.apiKey !== undefined || credentialChanged ? '' : undefined,
     });
 
     if (!updated) {
@@ -484,7 +643,7 @@ router.put('/config/:id', authMiddleware, requirePermission('ai_config_manage', 
       res.status(400).json({ error: '输入验证失败', details: error.errors });
       return;
     }
-    res.status(500).json({ error: '更新AI配置失败' });
+    res.status(500).json({ error: '更新AI配置失败: ' + (error as Error).message });
   }
 });
 
@@ -550,7 +709,7 @@ router.post('/analyze', authMiddleware, async (req: AuthRequest, res: Response) 
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = sanitizePrompt(provider || userConfig?.provider || config.ai.defaultProvider);
+    const providerName = sanitizePrompt(provider || userConfig?.id || config.ai.defaultProvider);
     
     console.log('AI Analyze request:', { questionId, provider, providerName, hasUserConfig: Boolean(userConfig) });
 
@@ -587,7 +746,7 @@ router.post('/expand', authMiddleware, async (req: AuthRequest, res: Response) =
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = provider || userConfig?.provider || config.ai.defaultProvider;
+    const providerName = provider || userConfig?.id || config.ai.defaultProvider;
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const prompt = `请扩展以下题目的答案，提供更详细的解释：
@@ -619,7 +778,7 @@ router.post('/recommend', authMiddleware, async (req: AuthRequest, res: Response
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = provider || userConfig?.provider || config.ai.defaultProvider;
+    const providerName = provider || userConfig?.id || config.ai.defaultProvider;
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const prompt = `基于以下题目，推荐相关的学习知识点：
@@ -651,7 +810,7 @@ router.post('/generate', authMiddleware, requirePermission('ai_generate', '没�
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = provider || userConfig?.provider || config.ai.defaultProvider;
+    const providerName = provider || userConfig?.id || config.ai.defaultProvider;
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const prompt = `请基于以下题目生成${count || 3}道类似的练习题：
@@ -677,7 +836,7 @@ router.post('/explain', authMiddleware, async (req: AuthRequest, res: Response) 
     const { concept, context, provider } = req.body;
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = provider || userConfig?.provider || config.ai.defaultProvider;
+    const providerName = provider || userConfig?.id || config.ai.defaultProvider;
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const prompt = context
@@ -708,7 +867,7 @@ router.post('/chat', authMiddleware, requirePermission('ai_chat', '没有AI对�
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = provider || userConfig?.provider || config.ai.defaultProvider;
+    const providerName = provider || userConfig?.id || config.ai.defaultProvider;
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const prompt = `关于以下题目，用户提出了一个问题，请详细回答：
@@ -747,7 +906,7 @@ router.post('/test-config', authMiddleware, requirePermission('ai_config_manage'
       config.api_key,
       config.model,
       baseUrl,
-      30000
+      90000
     );
     
     const testPrompt = '请回复"测试成功"';
@@ -781,7 +940,7 @@ router.post('/batch-generate', authMiddleware, requirePermission('ai_generate', 
   try {
     const data = batchGenerateSchema.parse(req.body);
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = sanitizePrompt(data.provider || userConfig?.provider || config.ai.defaultProvider);
+    const providerName = sanitizePrompt(data.provider || userConfig?.id || config.ai.defaultProvider);
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
 
     const modeInstructionMap: Record<'quick' | 'practice' | 'teaching', string> = {
@@ -856,7 +1015,7 @@ router.post('/polish-question', authMiddleware, requirePermission('ai_polish', '
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = sanitizePrompt(data.provider || userConfig?.provider || config.ai.defaultProvider);
+    const providerName = sanitizePrompt(data.provider || userConfig?.id || config.ai.defaultProvider);
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
     const tagAliases = parseTagAliasMap(await db.getSetting('tag_aliases'));
 
@@ -920,7 +1079,7 @@ router.post('/answer-drafts/raw', authMiddleware, requirePermission('ai_polish',
   try {
     const data = rawAnswerDraftSchema.parse(req.body);
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = sanitizePrompt(data.provider || userConfig?.provider || config.ai.defaultProvider);
+    const providerName = sanitizePrompt(data.provider || userConfig?.id || config.ai.defaultProvider);
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
     const tagAliases = parseTagAliasMap(await db.getSetting('tag_aliases'));
     const detail = data.mode === 'quick'
@@ -977,7 +1136,7 @@ router.post('/answer-draft', authMiddleware, requirePermission('ai_polish', '没
     }
 
     const userConfig = await db.getActiveAIConfig(req.user!.id);
-    const providerName = sanitizePrompt(data.provider || userConfig?.provider || config.ai.defaultProvider);
+    const providerName = sanitizePrompt(data.provider || userConfig?.id || config.ai.defaultProvider);
     const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
     const tagAliases = parseTagAliasMap(await db.getSetting('tag_aliases'));
     const existingTags = parseStoredTags(question.tags, tagAliases);
@@ -1057,7 +1216,7 @@ router.post(
     try {
       const data = batchTagsSchema.parse(req.body);
       const userConfig = await db.getActiveAIConfig(req.user!.id);
-      const providerName = sanitizePrompt(data.provider || userConfig?.provider || config.ai.defaultProvider);
+      const providerName = sanitizePrompt(data.provider || userConfig?.id || config.ai.defaultProvider);
       const aiProvider = await aiService.getProvider(providerName, { userId: req.user!.id, role: req.user!.role });
       const tagAliases = parseTagAliasMap(await db.getSetting('tag_aliases'));
       const results: Array<{ questionId: string; tags: string[] }> = [];

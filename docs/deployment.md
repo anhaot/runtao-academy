@@ -13,6 +13,16 @@
 
 ## 2. Docker 部署
 
+### 镜像版本
+
+项目不使用 `latest` 作为应用镜像版本。`APP_VERSION` 使用 `vYYMMDD-N` 格式，同一天重复构建时递增末尾序号，例如：
+
+```env
+APP_VERSION=v260805-1
+```
+
+Compose 会把 API 和 Web 构建为相同版本；未设置 `APP_VERSION` 时会直接报错，避免误用浮动标签。
+
 ### 启动
 
 ```bash
@@ -115,7 +125,7 @@ MYSQL_ROOT_PASSWORD=replace-with-a-different-random-root-password
 MYSQL_DATABASE=tech_growth_hub
 ```
 
-只有使用 AI 功能时，才需要为实际启用的模型配置有效 Key。
+只有使用 AI 功能时，才需要在系统的“API 凭据”中配置有效 Key，再让一个或多个模型配置引用该凭据。
 
 ---
 
@@ -180,8 +190,15 @@ MYSQL_DATABASE=tech_growth_hub
 - AI Key 是否配置
 - 当前用户是否有 AI 相关权限
 - 当前激活模型是否有效
+- 模型配置是否关联了正确的 API 凭据
 - 后端日志是否有模型调用错误
+
+模型列表可以正常读取但推理超时或返回无权限时，应检查提供商账户权限、地区访问限制和服务器出口网络；这类问题不等同于本地 API 未启动。
 
 ### Docker 服务是 healthy，但页面有旧资源
 
 通常是浏览器缓存导致，先强制刷新。
+
+## 9. Release 与离线镜像
+
+每个 GitHub Release 提供预构建程序包，以及 API、Web、MariaDB 的 amd64/arm64 独立镜像压缩包。镜像可以直接使用 `docker load` 导入，详细文件名和命令见 [release-assets.md](release-assets.md)。

@@ -251,6 +251,94 @@ test('users cannot update or delete another user AI config', async () => {
   assert.notEqual(await db.getAIConfigById(aiConfig.id), undefined);
 });
 
+test('AI status lists every configured model and provider names prefer the active config', async () => {
+  const owner = await createUser('model-selector', 'model-selector@example.com', 'Password123');
+  const olderConfig = await db.createAIConfig({
+    id: randomUUID(),
+    user_id: owner.user.id,
+    provider: 'openai',
+    display_name: 'Older model',
+    base_url: 'https://api.openai.com/v1',
+    api_key: 'older-secret',
+    model: 'older-model',
+    is_active: false,
+    is_custom: false,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  });
+  const activeConfig = await db.createAIConfig({
+    id: randomUUID(),
+    user_id: owner.user.id,
+    provider: 'openai',
+    display_name: 'Active model',
+    base_url: 'https://api.openai.com/v1',
+    api_key: 'active-secret',
+    model: 'active-model',
+    is_active: true,
+    is_custom: false,
+    created_at: '2026-01-02T00:00:00.000Z',
+    updated_at: '2026-01-02T00:00:00.000Z',
+  });
+
+  const status = await app
+    .get('/api/ai/status')
+    .set('Authorization', `Bearer ${owner.token}`);
+  assert.equal(status.status, 200);
+  assert.equal(status.body.defaultConfigId, activeConfig.id);
+  assert.equal(status.body.availableModels.length, 2);
+  assert.deepEqual(
+    new Set(status.body.availableModels.map((model: { id: string }) => model.id)),
+    new Set([olderConfig.id, activeConfig.id])
+  );
+
+  const { aiService } = await import('../src/services/ai.js');
+  const selectedByLegacyName = await aiService.getProvider('openai', { userId: owner.user.id, role: 'user' });
+  assert.equal(selectedByLegacyName.name, 'Active model');
+  const selectedById = await aiService.getProvider(olderConfig.id, { userId: owner.user.id, role: 'user' });
+  assert.equal(selectedById.name, 'Older model');
+});
+
+test('custom AI models reference separately managed credentials', async () => {
+  const login = await app
+    .post('/api/auth/login')
+    .set('X-Forwarded-For', nextTestIp())
+    .send({ username: 'admin', password: 'AdminPass123' });
+  assert.equal(login.status, 200);
+  const token = login.body.token as string;
+
+  const invalidCredential = await app
+    .post('/api/ai/credentials')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'Invalid NVIDIA', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: 'not-a-key' });
+  assert.equal(invalidCredential.status, 400);
+  assert.match(invalidCredential.body.error, /nvapi-/);
+
+  const credential = await app
+    .post('/api/ai/credentials')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'NVIDIA test', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKey: 'nvapi-test-secret' });
+  assert.equal(credential.status, 201);
+  assert.equal(credential.body.apiKey, undefined);
+
+  const aiConfig = await app
+    .post('/api/ai/config')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      provider: 'nvidia',
+      displayName: 'Test model',
+      model: 'test/model',
+      isCustom: true,
+      credentialId: credential.body.id,
+    });
+  assert.equal(aiConfig.status, 201);
+  assert.equal(aiConfig.body.credentialId, credential.body.id);
+
+  const cannotDeleteInUse = await app
+    .delete(`/api/ai/credentials/${credential.body.id}`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(cannotDeleteInUse.status, 409);
+});
+
 test('stored AI credentials and exported backups are encrypted at rest', async () => {
   const owner = await createUser('encrypted-config', 'encrypted-config@example.com', 'Password123');
   const aiConfig = await createAiConfig(owner.user.id);

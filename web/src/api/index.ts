@@ -5,6 +5,7 @@ import {
   Question,
   LearningProgress,
   AIConfig,
+  AICredential,
   AIModelCheckResult,
   AIModelInfo,
   PaginatedResult,
@@ -214,8 +215,19 @@ export const aiApi = {
   
   getConfigs: () => api.get<AIConfig[]>('/ai/config'),
 
+  getCredentials: () => api.get<AICredential[]>('/ai/credentials'),
+
+  createCredential: (data: { name: string; baseUrl: string; apiKey: string }) =>
+    api.post<AICredential>('/ai/credentials', data),
+
+  updateCredential: (id: string, data: { name?: string; baseUrl?: string; apiKey?: string }) =>
+    api.put<AICredential>(`/ai/credentials/${id}`, data),
+
+  deleteCredential: (id: string) => api.delete(`/ai/credentials/${id}`),
+
   getModels: (data: {
     configId?: string;
+    credentialId?: string;
     baseUrl?: string;
     apiKey?: string;
     isCustom?: boolean;
@@ -229,6 +241,7 @@ export const aiApi = {
     model: string;
     isCustom?: boolean;
     sourceConfigId?: string;
+    credentialId?: string;
   }) => api.post<AIConfig>('/ai/config', data),
   
   updateConfig: (id: string, data: { 
@@ -238,6 +251,7 @@ export const aiApi = {
     apiKey?: string; 
     model?: string;
     isCustom?: boolean;
+    credentialId?: string;
   }) => api.put<AIConfig>(`/ai/config/${id}`, data),
   
   deleteConfig: (id: string) => api.delete(`/ai/config/${id}`),

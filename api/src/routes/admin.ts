@@ -101,6 +101,7 @@ const backupRestoreSchema = z.object({
     learning_progress: z.array(z.record(z.unknown())).optional(),
     review_states: z.array(z.record(z.unknown())).optional(),
     review_events: z.array(z.record(z.unknown())).optional(),
+    ai_credentials: z.array(z.record(z.unknown())).optional(),
     ai_configs: z.array(z.record(z.unknown())).optional(),
     system_settings: z.array(z.record(z.unknown())).optional(),
   }),
@@ -357,6 +358,7 @@ router.post('/backup/restore', authMiddleware, adminMiddleware, async (req: Auth
       learning_progress: data.dataset.learning_progress || [],
       review_states: data.dataset.review_states || [],
       review_events: data.dataset.review_events || [],
+      ai_credentials: data.dataset.ai_credentials || [],
       ai_configs: data.dataset.ai_configs || [],
       system_settings: data.dataset.system_settings || [],
     });

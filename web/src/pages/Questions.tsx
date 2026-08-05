@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { questionApi, categoryApi, importApi, aiApi } from '@/api';
-import { Question, Category, PaginatedResult, SimilarQuestionPair, AIConfig } from '@/types';
+import { Question, Category, PaginatedResult, SimilarQuestionPair, AIConfig, AIModelOption } from '@/types';
 import { useAuthStore } from '@/store';
 import { hasPermission } from '@/lib/permissions';
 import { getTagColorClasses } from '@/lib/tagColors';
@@ -2277,6 +2277,8 @@ const AIGenerateModal: React.FC<AIGenerateModalProps> = ({ isOpen, onClose, cate
   const [importingIndex, setImportingIndex] = useState<number | null>(null);
   const [rawResult, setRawResult] = useState('');
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
+  const [modelOptions, setModelOptions] = useState<AIModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [formData, setFormData] = useState({
     topic: '',
     count: 10,
@@ -2288,6 +2290,36 @@ const AIGenerateModal: React.FC<AIGenerateModalProps> = ({ isOpen, onClose, cate
   });
 
   const categoryName = categories.find((category) => category.id === formData.categoryId)?.name || '';
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setModelsLoading(true);
+    aiApi.getStatus()
+      .then((response) => {
+        const models = response.data.availableModels?.length
+          ? response.data.availableModels
+          : [response.data.defaultProvider].filter(Boolean).map((name) => ({
+              id: name,
+              label: name,
+              provider: name,
+              model: '',
+              isActive: true,
+            }));
+        setModelOptions(models);
+        setFormData((current) => ({
+          ...current,
+          provider: response.data.defaultConfigId
+            || models.find((model) => model.isActive)?.id
+            || models[0]?.id
+            || response.data.defaultProvider,
+        }));
+      })
+      .catch((error) => {
+        console.error('Failed to fetch AI models:', error);
+        setModelOptions([]);
+      })
+      .finally(() => setModelsLoading(false));
+  }, [isOpen]);
 
   const toImportPayload = (question: GeneratedQuestion) => ({
     title: question.title,
@@ -2435,6 +2467,24 @@ const AIGenerateModal: React.FC<AIGenerateModalProps> = ({ isOpen, onClose, cate
                   <option value="hard">困难</option>
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">生题模型</label>
+              <select
+                value={formData.provider}
+                onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
+                disabled={modelsLoading || modelOptions.length === 0}
+                className="select-field w-full px-4 pr-10 py-3 bg-gray-50 text-gray-700 focus:bg-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {modelOptions.length === 0 ? (
+                  <option value="">{modelsLoading ? '正在读取模型…' : '暂无可用模型'}</option>
+                ) : modelOptions.map((modelOption) => (
+                  <option key={modelOption.id} value={modelOption.id}>
+                    {modelOption.label}{modelOption.isActive ? '（默认）' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>

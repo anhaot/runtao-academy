@@ -177,6 +177,10 @@ const App: React.FC = () => {
             padding: '12px 20px',
             borderRadius: '8px',
             width: 'min(92vw, 440px)',
+            maxHeight: 'min(50vh, 320px)',
+            overflowY: 'auto',
+            overflowWrap: 'anywhere',
+            whiteSpace: 'pre-wrap',
           },
           success: {
             duration: 3000,

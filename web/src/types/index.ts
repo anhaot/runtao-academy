@@ -89,9 +89,17 @@ export interface AIConfig {
   model: string;
   isActive: boolean;
   isCustom?: boolean;
+  credentialId?: string;
   modelStatus?: 'unknown' | 'valid' | 'invalid';
   lastCheckedAt?: string;
   lastCheckError?: string;
+  createdAt: string;
+}
+
+export interface AICredential {
+  id: string;
+  name: string;
+  baseUrl: string;
   createdAt: string;
 }
 
@@ -159,6 +167,7 @@ export interface BackupPayload {
     learning_progress?: Record<string, unknown>[];
     review_states?: Record<string, unknown>[];
     review_events?: Record<string, unknown>[];
+    ai_credentials?: Record<string, unknown>[];
     ai_configs?: Record<string, unknown>[];
     system_settings?: Record<string, unknown>[];
   };
@@ -168,6 +177,16 @@ export interface AIStatus {
   enabled: boolean;
   defaultProvider: string;
   availableProviders: string[];
+  defaultConfigId?: string;
+  availableModels?: AIModelOption[];
+}
+
+export interface AIModelOption {
+  id: string;
+  label: string;
+  provider: string;
+  model: string;
+  isActive: boolean;
 }
 
 export type DatabaseType = 'sqlite' | 'mysql';
@@ -211,6 +230,7 @@ export interface DatabaseCounts {
   learning_progress: number;
   review_states: number;
   review_events: number;
+  ai_credentials: number;
   ai_configs: number;
   system_settings: number;
 }

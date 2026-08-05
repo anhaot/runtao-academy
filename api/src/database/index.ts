@@ -13,6 +13,7 @@ import {
   ReviewRating,
   ReviewState,
   AIConfig,
+  AICredential,
   UserPermissions,
   DatabaseConnectionConfig,
   DatabaseTableCountSummary,
@@ -111,6 +112,7 @@ export class DatabaseManager {
     }
     await this.initializeTables();
     await this.migrateAIConfigSecrets();
+    await this.migrateAICredentialLinks();
     if (!this.skipDefaultAdmin) {
       await this.createDefaultAdmin();
     }
@@ -160,15 +162,42 @@ export class DatabaseManager {
   }
 
   private async migrateAIConfigSecrets(): Promise<void> {
-    const rows = await this.all<{ id: string; api_key: string }>('SELECT id, api_key FROM ai_configs');
-    for (const row of rows) {
-      const protectedValue = protectStoredSecret(row.api_key || '');
-      if (protectedValue !== row.api_key) {
-        await this.run('UPDATE ai_configs SET api_key = ?, updated_at = ? WHERE id = ?', [
-          protectedValue,
-          new Date().toISOString(),
-          row.id,
-        ]);
+    for (const table of ['ai_configs', 'ai_credentials']) {
+      const rows = await this.all<{ id: string; api_key: string }>(`SELECT id, api_key FROM ${table}`);
+      for (const row of rows) {
+        const protectedValue = protectStoredSecret(row.api_key || '');
+        if (protectedValue !== row.api_key) {
+          await this.run(`UPDATE ${table} SET api_key = ?, updated_at = ? WHERE id = ?`, [
+            protectedValue,
+            new Date().toISOString(),
+            row.id,
+          ]);
+        }
+      }
+    }
+  }
+
+  private async migrateAICredentialLinks(): Promise<void> {
+    const configs = await this.all<AIConfig>(
+      "SELECT * FROM ai_configs WHERE is_custom = 1 AND (credential_id IS NULL OR credential_id = '') ORDER BY created_at ASC"
+    );
+    for (const rawConfig of configs) {
+      const config = { ...rawConfig, api_key: decryptSecret(rawConfig.api_key) };
+      const credentials = await this.getAICredentialsByUserId(config.user_id);
+      let credential = credentials.find((item) => item.base_url === config.base_url && item.api_key === config.api_key);
+      if (!credential && config.base_url) {
+        credential = await this.createAICredential({
+          id: randomUUID(),
+          user_id: config.user_id,
+          name: config.provider === 'nvidia' ? 'NVIDIA' : (config.display_name || config.provider),
+          base_url: config.base_url,
+          api_key: config.api_key,
+          created_at: config.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      if (credential) {
+        await this.run('UPDATE ai_configs SET credential_id = ? WHERE id = ?', [credential.id, config.id]);
       }
     }
   }
@@ -262,6 +291,17 @@ export class DatabaseManager {
         FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS ai_credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS ai_configs (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -272,6 +312,7 @@ export class DatabaseManager {
         model TEXT NOT NULL,
         is_active INTEGER DEFAULT 1,
         is_custom INTEGER DEFAULT 0,
+        credential_id TEXT,
         model_status TEXT DEFAULT 'unknown',
         last_checked_at TEXT,
         last_check_error TEXT,
@@ -286,6 +327,7 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_learning_progress_user_id ON learning_progress(user_id);
       CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(user_id, due_at);
       CREATE INDEX IF NOT EXISTS idx_review_events_user_time ON review_events(user_id, reviewed_at);
+      CREATE INDEX IF NOT EXISTS idx_ai_credentials_user_id ON ai_credentials(user_id);
 
       CREATE TABLE IF NOT EXISTS system_settings (
         key TEXT PRIMARY KEY,
@@ -334,6 +376,10 @@ export class DatabaseManager {
 
     try {
       this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN last_check_error TEXT`);
+    } catch (e) { /* Column already exists */ }
+
+    try {
+      this.sqliteDb.exec(`ALTER TABLE ai_configs ADD COLUMN credential_id TEXT`);
     } catch (e) { /* Column already exists */ }
   }
 
@@ -465,6 +511,20 @@ export class DatabaseManager {
     `);
 
     await this.mysqlPool.execute(`
+      CREATE TABLE IF NOT EXISTS ai_credentials (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        base_url VARCHAR(500) NOT NULL,
+        api_key VARCHAR(500) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_ai_credentials_user_id (user_id)
+      )
+    `);
+
+    await this.mysqlPool.execute(`
       CREATE TABLE IF NOT EXISTS ai_configs (
         id VARCHAR(36) PRIMARY KEY,
         user_id VARCHAR(36) NOT NULL,
@@ -475,6 +535,7 @@ export class DatabaseManager {
         model VARCHAR(100) NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
         is_custom BOOLEAN DEFAULT FALSE,
+        credential_id VARCHAR(36),
         model_status VARCHAR(20) DEFAULT 'unknown',
         last_checked_at TEXT,
         last_check_error TEXT,
@@ -497,6 +558,11 @@ export class DatabaseManager {
     try {
       await this.mysqlPool.execute(`
         ALTER TABLE ai_configs ADD COLUMN last_check_error TEXT
+      `);
+    } catch (error) { /* Column already exists */ }
+    try {
+      await this.mysqlPool.execute(`
+        ALTER TABLE ai_configs ADD COLUMN credential_id VARCHAR(36)
       `);
     } catch (error) { /* Column already exists */ }
 
@@ -1378,9 +1444,9 @@ export class DatabaseManager {
       [aiConfig.user_id]
     );
     await this.run(
-      `INSERT INTO ai_configs (id, user_id, provider, display_name, base_url, api_key, model, is_active, is_custom, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [aiConfig.id, aiConfig.user_id, aiConfig.provider, aiConfig.display_name || null, aiConfig.base_url || null, encryptSecret(aiConfig.api_key), aiConfig.model, aiConfig.is_active ? 1 : 0, aiConfig.is_custom ? 1 : 0, aiConfig.created_at, aiConfig.updated_at]
+      `INSERT INTO ai_configs (id, user_id, provider, display_name, base_url, api_key, model, is_active, is_custom, credential_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [aiConfig.id, aiConfig.user_id, aiConfig.provider, aiConfig.display_name || null, aiConfig.base_url || null, encryptSecret(aiConfig.api_key), aiConfig.model, aiConfig.is_active ? 1 : 0, aiConfig.is_custom ? 1 : 0, aiConfig.credential_id || null, aiConfig.created_at, aiConfig.updated_at]
     );
     return aiConfig;
   }
@@ -1440,6 +1506,10 @@ export class DatabaseManager {
       fields.push('is_custom = ?');
       values.push(data.is_custom ? 1 : 0);
     }
+    if (data.credential_id !== undefined) {
+      fields.push('credential_id = ?');
+      values.push(data.credential_id || null);
+    }
     if (data.model_status !== undefined) {
       fields.push('model_status = ?');
       values.push(data.model_status);
@@ -1473,6 +1543,52 @@ export class DatabaseManager {
   async deleteAIConfigForUser(id: string, userId: string): Promise<boolean> {
     const result = await this.run('DELETE FROM ai_configs WHERE id = ? AND user_id = ?', [id, userId]);
     return getChangedRows(result) > 0;
+  }
+
+  async createAICredential(credential: AICredential): Promise<AICredential> {
+    await this.run(
+      `INSERT INTO ai_credentials (id, user_id, name, base_url, api_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [credential.id, credential.user_id, credential.name, credential.base_url, encryptSecret(credential.api_key), credential.created_at, credential.updated_at]
+    );
+    return credential;
+  }
+
+  async getAICredentialsByUserId(userId: string): Promise<AICredential[]> {
+    const rows = await this.all<AICredential>('SELECT * FROM ai_credentials WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+    return rows.map((row) => ({ ...row, api_key: decryptSecret(row.api_key) }));
+  }
+
+  async getAICredentialByIdForUser(id: string, userId: string): Promise<AICredential | undefined> {
+    const row = await this.get<AICredential>('SELECT * FROM ai_credentials WHERE id = ? AND user_id = ?', [id, userId]);
+    return row ? { ...row, api_key: decryptSecret(row.api_key) } : undefined;
+  }
+
+  async updateAICredential(id: string, userId: string, data: Partial<AICredential>): Promise<AICredential | undefined> {
+    const existing = await this.getAICredentialByIdForUser(id, userId);
+    if (!existing) return undefined;
+    const name = data.name ?? existing.name;
+    const baseUrl = data.base_url ?? existing.base_url;
+    const apiKey = data.api_key ?? existing.api_key;
+    const updatedAt = new Date().toISOString();
+    await this.run(
+      'UPDATE ai_credentials SET name = ?, base_url = ?, api_key = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+      [name, baseUrl, encryptSecret(apiKey), updatedAt, id, userId]
+    );
+    await this.run(
+      'UPDATE ai_configs SET base_url = ?, api_key = ?, model_status = ?, last_checked_at = ?, last_check_error = ?, updated_at = ? WHERE credential_id = ? AND user_id = ?',
+      [baseUrl, encryptSecret(apiKey), 'unknown', '', '', updatedAt, id, userId]
+    );
+    return this.getAICredentialByIdForUser(id, userId);
+  }
+
+  async deleteAICredentialForUser(id: string, userId: string): Promise<'deleted' | 'in_use' | 'missing'> {
+    const existing = await this.getAICredentialByIdForUser(id, userId);
+    if (!existing) return 'missing';
+    const usage = await this.get<{ count: number }>('SELECT COUNT(*) as count FROM ai_configs WHERE credential_id = ? AND user_id = ?', [id, userId]);
+    if ((usage?.count || 0) > 0) return 'in_use';
+    await this.run('DELETE FROM ai_credentials WHERE id = ? AND user_id = ?', [id, userId]);
+    return 'deleted';
   }
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1565,6 +1681,7 @@ export class DatabaseManager {
       'learning_progress',
       'review_states',
       'review_events',
+      'ai_credentials',
       'ai_configs',
       'system_settings',
     ] as const;
@@ -1584,6 +1701,7 @@ export class DatabaseManager {
       learning_progress: counts.learning_progress || 0,
       review_states: counts.review_states || 0,
       review_events: counts.review_events || 0,
+      ai_credentials: counts.ai_credentials || 0,
       ai_configs: counts.ai_configs || 0,
       system_settings: counts.system_settings || 0,
     };
@@ -1597,6 +1715,7 @@ export class DatabaseManager {
       learning_progress: await this.all<Record<string, unknown>>('SELECT * FROM learning_progress ORDER BY last_viewed_at ASC'),
       review_states: await this.all<Record<string, unknown>>('SELECT * FROM review_states ORDER BY due_at ASC'),
       review_events: await this.all<Record<string, unknown>>('SELECT * FROM review_events ORDER BY reviewed_at ASC'),
+      ai_credentials: await this.all<Record<string, unknown>>('SELECT * FROM ai_credentials ORDER BY created_at ASC'),
       ai_configs: await this.all<Record<string, unknown>>('SELECT * FROM ai_configs ORDER BY created_at ASC'),
       system_settings: await this.all<Record<string, unknown>>('SELECT * FROM system_settings ORDER BY `key` ASC'),
     };
@@ -1609,6 +1728,7 @@ export class DatabaseManager {
     await this.run('DELETE FROM questions');
     await this.run('DELETE FROM categories');
     await this.run('DELETE FROM ai_configs');
+    await this.run('DELETE FROM ai_credentials');
     await this.run('DELETE FROM users');
     await this.run('DELETE FROM system_settings');
 
@@ -1625,11 +1745,17 @@ export class DatabaseManager {
     await this.bulkInsert('learning_progress', ['id', 'user_id', 'question_id', 'mode', 'last_viewed_at', 'view_count', 'is_bookmarked'], dataset.learning_progress || []);
     await this.bulkInsert('review_states', ['id', 'user_id', 'question_id', 'due_at', 'interval_days', 'ease_factor', 'repetitions', 'lapses', 'last_rating', 'last_reviewed_at', 'updated_at'], dataset.review_states || []);
     await this.bulkInsert('review_events', ['id', 'user_id', 'question_id', 'rating', 'reviewed_at', 'response_ms', 'created_at'], dataset.review_events || []);
-    const encryptedAIConfigs = (dataset.ai_configs || []).map((row) => ({
+    const encryptedAICredentials = (dataset.ai_credentials || []).map((row) => ({
       ...row,
       api_key: typeof row.api_key === 'string' ? protectStoredSecret(row.api_key) : row.api_key,
     }));
-    await this.bulkInsert('ai_configs', ['id', 'user_id', 'provider', 'display_name', 'base_url', 'api_key', 'model', 'is_active', 'is_custom', 'model_status', 'last_checked_at', 'last_check_error', 'created_at', 'updated_at'], encryptedAIConfigs);
+    await this.bulkInsert('ai_credentials', ['id', 'user_id', 'name', 'base_url', 'api_key', 'created_at', 'updated_at'], encryptedAICredentials);
+    const encryptedAIConfigs = (dataset.ai_configs || []).map((row) => ({
+      ...row,
+      api_key: typeof row.api_key === 'string' ? protectStoredSecret(row.api_key) : row.api_key,
+      credential_id: row.credential_id ?? null,
+    }));
+    await this.bulkInsert('ai_configs', ['id', 'user_id', 'provider', 'display_name', 'base_url', 'api_key', 'model', 'is_active', 'is_custom', 'credential_id', 'model_status', 'last_checked_at', 'last_check_error', 'created_at', 'updated_at'], encryptedAIConfigs);
     await this.bulkInsert('system_settings', ['key', 'value', 'updated_at'], dataset.system_settings || []);
   }
 

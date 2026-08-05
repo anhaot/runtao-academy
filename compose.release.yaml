@@ -2,7 +2,7 @@ name: tech-growth-hub
 
 services:
   api:
-    image: ghcr.io/anhaot/tech-growth-hub-api:latest
+    image: ghcr.io/anhaot/tech-growth-hub-api:${APP_VERSION:?请在 .env 中设置镜像版本，如 v260805-1}
     restart: unless-stopped
     depends_on:
       db:
@@ -53,7 +53,7 @@ services:
       retries: 3
 
   web:
-    image: ghcr.io/anhaot/tech-growth-hub-web:latest
+    image: ghcr.io/anhaot/tech-growth-hub-web:${APP_VERSION:?请在 .env 中设置镜像版本，如 v260805-1}
     restart: unless-stopped
     ports:
       - "10089:8080"

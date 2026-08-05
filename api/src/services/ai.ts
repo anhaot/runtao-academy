@@ -9,7 +9,12 @@ interface ProviderActor {
 
 export interface AIProvider {
   name: string;
-  chat(messages: Array<{ role: string; content: string }>): Promise<string>;
+  chat(messages: Array<{ role: string; content: string }>, options?: ChatOptions): Promise<string>;
+}
+
+interface ChatOptions {
+  maxTokens?: number;
+  temperature?: number;
 }
 
 interface ChatCompletionResponse {
@@ -31,6 +36,26 @@ const defaultBaseUrls: Record<string, string> = {
 
 const AI_REQUEST_TIMEOUT_MS = 180000;
 
+function getProviderErrorMessage(providerName: string, status: number, responseBody: string): string {
+  let detail = responseBody;
+  try {
+    const parsed = JSON.parse(responseBody) as { detail?: string; error?: { message?: string } | string; message?: string };
+    detail = parsed.detail
+      || (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message)
+      || parsed.message
+      || responseBody;
+  } catch {
+    // Keep the plain-text response returned by the provider.
+  }
+
+  if (status === 404 && /Function ['"]?[^'"]+['"]?:? Not found for account/i.test(detail)) {
+    return `${providerName} 当前账户无权调用该模型。NVIDIA 模型列表可见不代表可调用，请确认账户已开通 Public API Endpoints；若已开通，则该模型的托管端点可能暂不可用，请更换模型或联系 NVIDIA 支持。`;
+  }
+
+  const normalizedDetail = detail.replace(/\s+/g, ' ').trim().slice(0, 500);
+  return `${providerName} API 请求失败（HTTP ${status}）${normalizedDetail ? `：${normalizedDetail}` : ''}`;
+}
+
 class OpenAICompatibleProvider implements AIProvider {
   name: string;
   private apiKey: string;
@@ -46,7 +71,7 @@ class OpenAICompatibleProvider implements AIProvider {
     this.timeout = timeout;
   }
 
-  async chat(messages: Array<{ role: string; content: string }>): Promise<string> {
+  async chat(messages: Array<{ role: string; content: string }>, options: ChatOptions = {}): Promise<string> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -61,8 +86,8 @@ class OpenAICompatibleProvider implements AIProvider {
         body: JSON.stringify({
           model: this.model,
           messages,
-          temperature: 0.7,
-          max_tokens: 4000,
+          temperature: options.temperature ?? 0.7,
+          max_tokens: options.maxTokens ?? 4000,
         }),
         signal: controller.signal,
       });
@@ -71,7 +96,7 @@ class OpenAICompatibleProvider implements AIProvider {
 
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`${this.name} API error: ${error}`);
+        throw new Error(getProviderErrorMessage(this.name, response.status, error));
       }
       const data = await response.json() as ChatCompletionResponse;
       return data.choices[0].message.content;
@@ -79,7 +104,7 @@ class OpenAICompatibleProvider implements AIProvider {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        throw new Error(`${this.name} 连接超时，请检查网络或API地址是否正确`);
+        throw new Error(`${this.name} 推理接口在 ${Math.round(this.timeout / 1000)} 秒内未响应。若模型列表可以正常读取，通常是上游账户权限、地区访问限制或托管推理服务异常，请更换网络/提供商或联系上游支持`);
       }
       
       if (error.message?.includes('ECONNREFUSED')) {
@@ -135,11 +160,20 @@ class AIService {
 
     if (userId && providerName) {
       const allConfigs = await db.getAIConfigsByUserId(userId);
-      const targetConfig = allConfigs.find(c => 
-        c.display_name === providerName || 
-        c.provider === providerName ||
-        c.display_name?.toLowerCase() === providerName.toLowerCase()
+      const normalizedProviderName = providerName.toLowerCase();
+      const matchingConfigs = allConfigs.filter(c =>
+        c.id === providerName
+        || c.display_name === providerName
+        || c.provider === providerName
+        || c.display_name?.toLowerCase() === normalizedProviderName
+        || c.provider.toLowerCase() === normalizedProviderName
       );
+      // Configuration IDs are the only unambiguous selector. For legacy clients that
+      // still send a provider/display name, prefer the active config instead of the
+      // first row returned by the database.
+      const targetConfig = matchingConfigs.find(c => c.id === providerName)
+        || matchingConfigs.find(c => c.is_active)
+        || matchingConfigs[0];
       if (targetConfig) {
         const baseUrl = validateAIBaseUrl(
           targetConfig.base_url || defaultBaseUrls[targetConfig.provider] || 'https://api.openai.com/v1',
