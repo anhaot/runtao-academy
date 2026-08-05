@@ -31,6 +31,7 @@ The format loosely follows Keep a Changelog, with sections grouped by release.
 
 - Fixed model selection paths that could resolve a provider name to its first configuration instead of the selected configuration ID.
 - Improved NVIDIA-compatible upstream error handling, long-message layout, and timeout diagnostics.
+- Replaced MariaDB's generated internal healthcheck credential with an application-user `SELECT 1` check, avoiding unhealthy containers when an imported or reused data volume contains stale healthcheck credentials.
 
 ## [1.1.0] - 2026-04-07
 

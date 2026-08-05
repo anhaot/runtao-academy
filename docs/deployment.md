@@ -199,6 +199,16 @@ MYSQL_DATABASE=tech_growth_hub
 
 通常是浏览器缓存导致，先强制刷新。
 
+### MariaDB 提示 `create_uring failed`
+
+这是宿主机内核或容器安全策略不允许 io_uring 时的降级提示。MariaDB 会自动改用 Linux native AIO；只要后续出现 `ready for connections`，就不属于启动故障，不建议为了消除提示而放宽容器安全策略。
+
+### MariaDB 内部 `healthcheck` 用户认证失败
+
+旧数据卷或中断过的初始化可能导致 MariaDB 镜像生成的 `.my-healthcheck.cnf` 与内部用户密码不一致。`v260805-2` 起，Compose 健康检查改用 `.env` 中配置的应用数据库用户执行 `SELECT 1`，不再依赖内部 `healthcheck` 用户。
+
+如果新检查仍失败，说明数据卷中的应用用户密码与当前 `.env` 的 `MYSQL_PASSWORD` 不一致。应恢复原密码或在数据库中更新用户密码，不要直接删除仍有数据的 `db-data` 卷。
+
 ## 9. Release 与离线镜像
 
 每个 GitHub Release 提供预构建程序包，以及 API、Web、MariaDB 的 amd64/arm64 独立镜像压缩包。镜像可以直接使用 `docker load` 导入，详细文件名和命令见 [release-assets.md](release-assets.md)。

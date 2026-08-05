@@ -44,6 +44,8 @@ docker compose ps
 - `starting`：容器刚启动，仍在等待健康检查
 - `unhealthy`：服务已启动，但健康检查失败
 
+MariaDB 日志出现 `create_uring failed: falling back to libaio` 只表示自动降级，不影响数据库工作。持续出现 `Access denied` 时，应区分内部健康检查用户和应用数据库用户；`v260805-2` 起健康检查直接使用应用用户执行只读查询。
+
 ---
 
 ## 3. 健康检查
