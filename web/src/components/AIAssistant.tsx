@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Question } from '@/types';
+import { AIModelOption, Question } from '@/types';
 import { aiApi, importApi } from '@/api';
 import { useAuthStore } from '@/store';
 import { hasPermission } from '@/lib/permissions';
@@ -52,7 +52,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ question }) => {
   const [chatMessages, setChatMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [generatedQuestions, setGeneratedQuestions] = useState<Array<any>>([]);
-  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<AIModelOption[]>([]);
   const [configsLoading, setConfigsLoading] = useState(true);
 
   const applyAIResult = (content: string) => {
@@ -63,18 +63,30 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ question }) => {
     const fetchProviders = async () => {
       try {
         const response = await aiApi.getStatus();
-        const providers = response.data.availableProviders.length > 0
-          ? response.data.availableProviders
-          : [response.data.defaultProvider].filter(Boolean);
-        setAvailableProviders(providers);
-        setProvider((current) => (
-          current && providers.includes(current)
-            ? current
-            : providers[0] || response.data.defaultProvider
-        ));
+        const models = response.data.availableModels?.length
+          ? response.data.availableModels
+          : response.data.availableProviders.map((name) => ({
+              id: name,
+              label: name,
+              provider: name,
+              model: '',
+              isActive: name === response.data.defaultProvider,
+            }));
+        setAvailableModels(models);
+        setProvider((current) => {
+          const currentMatch = models.find((model) => model.id === current)
+            || models.find((model) => model.label === current)
+            || models.find((model) => model.isActive && model.provider === current)
+            || models.find((model) => model.provider === current);
+          return currentMatch?.id
+            || response.data.defaultConfigId
+            || models.find((model) => model.isActive)?.id
+            || models[0]?.id
+            || response.data.defaultProvider;
+        });
       } catch (error) {
         console.error('Failed to fetch AI providers:', error);
-        setAvailableProviders([]);
+        setAvailableModels([]);
       } finally {
         setConfigsLoading(false);
       }
@@ -244,9 +256,9 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ question }) => {
             onChange={(e) => setProvider(e.target.value)}
             className="select-field px-2 pr-8 py-1 bg-white text-gray-700 text-xs cursor-pointer"
           >
-            {availableProviders.map((providerName) => (
-              <option key={providerName} value={providerName}>
-                {providerName}
+            {availableModels.map((modelOption) => (
+              <option key={modelOption.id} value={modelOption.id}>
+                {modelOption.label}{modelOption.isActive ? '（默认）' : ''}
               </option>
             ))}
           </select>

@@ -17,6 +17,20 @@ The format loosely follows Keep a Changelog, with sections grouped by release.
 - AI model configuration maintenance: model availability checks, invalid-model status badges, and one-click cleanup for invalid model configs.
 - Dynamic custom API address templates for saved OpenAI-compatible providers, including template naming and NVIDIA address recognition.
 - Reuse of saved custom provider API keys when adding additional models for the same API address.
+- Dedicated encrypted API credential management, with model configurations referencing reusable credentials instead of displaying keys.
+- Progressive multi-model checks: up to four checks run concurrently, each result is shown immediately, and a final dialog summarizes available, unavailable, unconfirmed, and timed-out models.
+
+### Changed
+
+- AI generation and study assistants now list every configured model while defaulting to the active model.
+- Project documentation now presents the product as an AI question-bank, knowledge-governance, and learning platform; browser capture is documented as a supporting input workflow.
+- Application images now require date-sequence versions such as `v260805-1`; Compose and release automation no longer use `latest`.
+- GitHub Releases now attach a runnable prebuilt bundle, checksum manifest, and separately importable API, Web, and MariaDB Docker archives for amd64 and arm64.
+
+### Fixed
+
+- Fixed model selection paths that could resolve a provider name to its first configuration instead of the selected configuration ID.
+- Improved NVIDIA-compatible upstream error handling, long-message layout, and timeout diagnostics.
 
 ## [1.1.0] - 2026-04-07
 

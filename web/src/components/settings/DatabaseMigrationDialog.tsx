@@ -61,6 +61,7 @@ const countLabels: Record<keyof DatabaseCounts, string> = {
   learning_progress: '学习记录',
   review_states: '复习状态',
   review_events: '复习事件',
+  ai_credentials: 'AI 凭据',
   ai_configs: 'AI 配置',
   system_settings: '系统设置',
 };

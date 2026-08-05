@@ -111,9 +111,20 @@ export interface AIConfig {
   model: string;
   is_active: boolean;
   is_custom?: boolean;
+  credential_id?: string;
   model_status?: 'unknown' | 'valid' | 'invalid';
   last_checked_at?: string;
   last_check_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AICredential {
+  id: string;
+  user_id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
   created_at: string;
   updated_at: string;
 }
@@ -215,6 +226,7 @@ export interface DatabaseTableCountSummary {
   learning_progress: number;
   review_states: number;
   review_events: number;
+  ai_credentials: number;
   ai_configs: number;
   system_settings: number;
 }

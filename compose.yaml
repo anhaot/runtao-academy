@@ -2,7 +2,7 @@ name: tech-growth-hub
 
 services:
   api:
-    image: tech-growth-hub-api:latest
+    image: tech-growth-hub-api:${APP_VERSION:?请在 .env 中设置镜像版本，如 v260805-1}
     build:
       context: ./api
       dockerfile: Dockerfile
@@ -58,7 +58,7 @@ services:
       retries: 3
 
   web:
-    image: tech-growth-hub-web:latest
+    image: tech-growth-hub-web:${APP_VERSION:?请在 .env 中设置镜像版本，如 v260805-1}
     build:
       context: ./web
       dockerfile: Dockerfile
