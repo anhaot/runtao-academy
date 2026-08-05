@@ -6,5 +6,5 @@ test('管理员可以通过登录页完成登录', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByText('技术成长站')).toBeVisible();
-  await expect(page.getByRole('heading', { name: new RegExp(`(早上好|中午好|下午好|晚上好)，${adminUser.username}`) })).toBeVisible();
+  await expect(page.getByRole('heading', { name: new RegExp(`(夜深了|早上好|中午好|下午好|晚上好)，${adminUser.username}`) })).toBeVisible();
 });
